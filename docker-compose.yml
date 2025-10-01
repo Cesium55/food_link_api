@@ -1,0 +1,79 @@
+services:
+  # База данных PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: food_link_postgres
+    hostname: food_link_postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - food_link_network
+
+  # Приложение FastAPI (для разработки)
+  api:
+    build: .
+    container_name: food_link_api
+    environment:
+      # Настройки базы данных
+      DB_SYNC_DRIVER: ${DB_SYNC_DRIVER}
+      DB_ASYNC_DRIVER: ${DB_ASYNC_DRIVER}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: food_link_postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      
+      # Настройки приложения
+      APP_NAME: ${APP_NAME}
+      APP_VERSION: ${APP_VERSION}
+      DEBUG: true
+      ENVIRONMENT: development
+      
+      # Настройки сервера
+      SERVER_HOST: ${SERVER_HOST}
+      SERVER_PORT: ${SERVER_PORT}
+      
+      # Настройки CORS
+      ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      ALLOWED_METHODS: ${CORS_ALLOWED_METHODS}
+      ALLOWED_HEADERS: ${CORS_ALLOWED_HEADERS}
+
+      
+      # Настройки Redis
+      REDIS_URL: ${REDIS_URL}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_DB: ${REDIS_DB}
+    ports:
+      - "${SERVER_PORT}:8000"
+    networks:
+      - food_link_network
+    volumes:
+      - .:/app
+    command: ["uv", "run", "python", "run.py"]
+
+  # Redis (опционально)
+  redis:
+    image: redis:latest
+    container_name: food_link_redis
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - food_link_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  food_link_network:
+    driver: bridge
