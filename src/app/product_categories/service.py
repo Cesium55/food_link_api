@@ -4,7 +4,8 @@ from sqlalchemy import select, func, and_, delete, update, insert
 from sqlalchemy.orm import selectinload
 
 from app.product_categories import schemas
-from models import ProductCategory, Product
+from app.product_categories.models import ProductCategory
+from app.products.models import Product
 
 
 class ProductCategoriesService:

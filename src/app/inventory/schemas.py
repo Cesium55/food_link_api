@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 if TYPE_CHECKING:
     from app.products.schemas import Product
@@ -31,12 +31,11 @@ class ProductEntryUpdate(BaseModel):
 
 class ProductEntry(ProductEntryBase):
     """Schema for displaying product availability record"""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int = Field(..., description="Unique identifier")
     product_id: int = Field(..., description="Product ID")
     shop_id: int = Field(..., description="Shop point ID")
-    
-    class Config:
-        from_attributes = True
 
 
 class ProductEntryWithProduct(ProductEntry):

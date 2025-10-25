@@ -35,20 +35,20 @@ async def get_shop_point(request: Request, shop_point_id: int) -> schemas.ShopPo
     return await shop_points_manager.get_shop_point_by_id(request.state.session, shop_point_id)
 
 
-@router.get("/network/{network_id}", response_model=List[schemas.ShopPoint])
-async def get_shop_points_by_network(request: Request, network_id: int) -> List[schemas.ShopPoint]:
+@router.get("/seller/{seller_id}", response_model=List[schemas.ShopPoint])
+async def get_shop_points_by_seller(request: Request, seller_id: int) -> List[schemas.ShopPoint]:
     """
-    Get shop points by network ID
+    Get shop points by seller ID
     """
-    return await shop_points_manager.get_shop_points_by_network(request.state.session, network_id)
+    return await shop_points_manager.get_shop_points_by_seller(request.state.session, seller_id)
 
 
-@router.get("/{shop_point_id}/with-network", response_model=schemas.ShopPointWithNetwork)
-async def get_shop_point_with_network(request: Request, shop_point_id: int) -> schemas.ShopPointWithNetwork:
+@router.get("/{shop_point_id}/with-seller", response_model=schemas.ShopPointWithSeller)
+async def get_shop_point_with_seller(request: Request, shop_point_id: int) -> schemas.ShopPointWithSeller:
     """
-    Get shop point with network information
+    Get shop point with seller information
     """
-    return await shop_points_manager.get_shop_point_with_network(request.state.session, shop_point_id)
+    return await shop_points_manager.get_shop_point_with_seller(request.state.session, shop_point_id)
 
 
 @router.put("/{shop_point_id}", response_model=schemas.ShopPoint)

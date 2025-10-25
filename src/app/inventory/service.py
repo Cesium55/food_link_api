@@ -2,7 +2,7 @@ from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.inventory import schemas
-from src.models import ProductEntry
+from app.products.models import ProductEntry
 
 
 class InventoryService:

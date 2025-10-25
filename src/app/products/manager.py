@@ -4,8 +4,8 @@ from fastapi import HTTPException, status
 
 from app.products import schemas
 from app.products.service import ProductsService
-from app.networks import schemas as networks_schemas
-from app.networks.service import NetworksService
+from app.sellers import schemas as sellers_schemas
+from app.sellers.service import SellersService
 from app.product_categories import schemas as categories_schemas
 from app.product_categories.service import ProductCategoriesService
 from utils.errors_handler import handle_alchemy_error
@@ -16,7 +16,7 @@ class ProductsManager:
 
     def __init__(self):
         self.service = ProductsService()
-        self.networks_service = NetworksService()
+        self.sellers_service = SellersService()
         self.categories_service = ProductCategoriesService()
 
     @handle_alchemy_error
@@ -46,13 +46,13 @@ class ProductsManager:
 
         return schemas.Product.model_validate(product)
 
-    async def get_products_by_network(self, session: AsyncSession, network_id: int) -> List[schemas.Product]:
-        """Get products by network ID"""
-        products = await self.service.get_products_by_network(session, network_id)
+    async def get_products_by_seller(self, session: AsyncSession, seller_id: int) -> List[schemas.Product]:
+        """Get products by seller ID"""
+        products = await self.service.get_products_by_seller(session, seller_id)
         return [schemas.Product.model_validate(product) for product in products]
 
-    async def get_product_with_network(self, session: AsyncSession, product_id: int) -> schemas.ProductWithNetwork:
-        """Get product with network information"""
+    async def get_product_with_seller(self, session: AsyncSession, product_id: int) -> schemas.ProductWithSeller:
+        """Get product with seller information"""
         product = await self.service.get_product_by_id(session, product_id)
         if not product:
             raise HTTPException(
@@ -60,20 +60,20 @@ class ProductsManager:
                 detail=f"Product with id {product_id} not found"
             )
 
-        # Get network data through NetworksService
-        network = await self.networks_service.get_network_by_id(session, product.network_id)
-        if not network:
+        # Get seller data through SellersService
+        seller = await self.sellers_service.get_seller_by_id(session, product.seller_id)
+        if not seller:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Network with id {product.network_id} not found"
+                detail=f"Seller with id {product.seller_id} not found"
             )
 
         product_schema = schemas.Product.model_validate(product)
-        network_schema = networks_schemas.Network.model_validate(network)
+        seller_schema = sellers_schemas.Seller.model_validate(seller)
         
-        return schemas.ProductWithNetwork(
+        return schemas.ProductWithSeller(
             **product_schema.model_dump(),
-            network=network_schema
+            seller=seller_schema
         )
 
     async def get_product_with_categories(self, session: AsyncSession, product_id: int) -> schemas.ProductWithCategories:
@@ -105,12 +105,12 @@ class ProductsManager:
                 detail=f"Product with id {product_id} not found"
             )
 
-        # Get network data through NetworksService
-        network = await self.networks_service.get_network_by_id(session, product.network_id)
-        if not network:
+        # Get seller data through SellersService
+        seller = await self.sellers_service.get_seller_by_id(session, product.seller_id)
+        if not seller:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Network with id {product.network_id} not found"
+                detail=f"Seller with id {product.seller_id} not found"
             )
 
         # Get categories through ProductCategoriesService
@@ -118,11 +118,11 @@ class ProductsManager:
         categories_list = [categories_schemas.ProductCategory.model_validate(cat) for cat in categories]
 
         product_schema = schemas.Product.model_validate(product)
-        network_schema = networks_schemas.Network.model_validate(network)
+        seller_schema = sellers_schemas.Seller.model_validate(seller)
         
         return schemas.ProductWithDetails(
             **product_schema.model_dump(),
-            network=network_schema,
+            seller=seller_schema,
             categories=categories_list
         )
 

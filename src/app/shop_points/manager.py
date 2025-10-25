@@ -4,8 +4,8 @@ from fastapi import HTTPException, status
 
 from app.shop_points import schemas
 from app.shop_points.service import ShopPointsService
-from app.networks import schemas as networks_schemas
-from app.networks.service import NetworksService
+from app.sellers import schemas as sellers_schemas
+from app.sellers.service import SellersService
 from utils.errors_handler import handle_alchemy_error
 
 
@@ -14,7 +14,7 @@ class ShopPointsManager:
 
     def __init__(self):
         self.service = ShopPointsService()
-        self.networks_service = NetworksService()
+        self.sellers_service = SellersService()
 
     @handle_alchemy_error
     async def create_shop_point(self, session: AsyncSession, shop_point_data: schemas.ShopPointCreate) -> schemas.ShopPoint:
@@ -43,34 +43,34 @@ class ShopPointsManager:
 
         return schemas.ShopPoint.model_validate(shop_point)
 
-    async def get_shop_points_by_network(self, session: AsyncSession, network_id: int) -> List[schemas.ShopPoint]:
-        """Get shop points by network ID"""
-        shop_points = await self.service.get_shop_points_by_network(session, network_id)
+    async def get_shop_points_by_seller(self, session: AsyncSession, seller_id: int) -> List[schemas.ShopPoint]:
+        """Get shop points by seller ID"""
+        shop_points = await self.service.get_shop_points_by_seller(session, seller_id)
         return [schemas.ShopPoint.model_validate(shop_point) for shop_point in shop_points]
 
-    async def get_shop_point_with_network(self, session: AsyncSession, shop_point_id: int) -> schemas.ShopPointWithNetwork:
-        """Get shop point with network information"""
-        shop_point = await self.service.get_shop_point_with_network(session, shop_point_id)
+    async def get_shop_point_with_seller(self, session: AsyncSession, shop_point_id: int) -> schemas.ShopPointWithSeller:
+        """Get shop point with seller information"""
+        shop_point = await self.service.get_shop_point_with_seller(session, shop_point_id)
         if not shop_point:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Shop point with id {shop_point_id} not found"
             )
 
-        # Get network data through NetworksService
-        network = await self.networks_service.get_network_by_id(session, shop_point.network_id)
-        if not network:
+        # Get seller data through SellersService
+        seller = await self.sellers_service.get_seller_by_id(session, shop_point.seller_id)
+        if not seller:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Network with id {shop_point.network_id} not found"
+                detail=f"Seller with id {shop_point.seller_id} not found"
             )
 
         shop_point_schema = schemas.ShopPoint.model_validate(shop_point)
-        network_schema = networks_schemas.Network.model_validate(network)
+        seller_schema = sellers_schemas.Seller.model_validate(seller)
         
-        return schemas.ShopPointWithNetwork(
+        return schemas.ShopPointWithSeller(
             **shop_point_schema.model_dump(),
-            network=network_schema
+            seller=seller_schema
         )
 
     @handle_alchemy_error

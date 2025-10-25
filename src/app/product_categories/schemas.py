@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 if TYPE_CHECKING:
     from app.products.schemas import Product
@@ -26,11 +26,10 @@ class ProductCategoryUpdate(BaseModel):
 
 class ProductCategory(ProductCategoryBase):
     """Schema for displaying product category"""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int = Field(..., description="Unique identifier")
     parent_category_id: Optional[int] = Field(None, description="Parent category ID")
-    
-    class Config:
-        from_attributes = True
 
 
 class ProductCategoryWithParent(ProductCategory):

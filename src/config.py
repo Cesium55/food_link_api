@@ -24,10 +24,11 @@ class Settings(BaseSettings):
     db_port: int = 5432
     db_name: str = "food_link"
     
-    # Настройки безопасности
-    secret_key: str = "your-secret-key-here"
-    access_token_expire_minutes: int = 30
-    algorithm: str = "HS256"
+    # JWT настройки для аутентификации
+    jwt_secret_key: str = "your-jwt-secret-key-here"
+    jwt_access_token_expire_minutes: int = 1
+    jwt_refresh_token_expire_days: int = 30
+    jwt_algorithm: str = "HS256"
     
     # Настройки CORS
     allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:8080"]
@@ -43,6 +44,10 @@ class Settings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
+
+
+
+    yandex_map_api_key: str = "UNDEFINED_KEY"
     
     class Config:
         env_file = ".env"

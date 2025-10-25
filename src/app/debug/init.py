@@ -1,7 +1,7 @@
 import asyncio
 import httpx
 from typing import List, Dict, Any
-from app.networks.schemas import NetworkCreate
+from app.sellers.schemas import SellerCreate
 from app.shop_points.schemas import ShopPointCreate
 from app.products.schemas import ProductCreate
 from app.product_categories.schemas import ProductCategoryCreate
@@ -15,7 +15,7 @@ class DebugDataInitializer:
         self.base_url = base_url
         self.client = httpx.AsyncClient()
         self.created_data = {
-            "networks": [],
+            "sellers": [],
             "shop_points": [],
             "categories": [],
             "products": [],
@@ -26,77 +26,159 @@ class DebugDataInitializer:
         """Close the HTTP client"""
         await self.client.aclose()
     
-    async def get_or_create_networks(self) -> List[Dict[str, Any]]:
-        """Get existing networks or create test networks"""
-        networks_data = [
-            {"name": "Пятёрочка", "slug": "pyaterochka"},
-            {"name": "Магнит", "slug": "magnit"},
-            {"name": "Лента", "slug": "lenta"},
-            {"name": "Перекрёсток", "slug": "perekrestok"},
-            {"name": "Ашан", "slug": "auchan"}
+    async def clear_all_data(self) -> Dict[str, Any]:
+        """Clear all data from the database"""
+        cleared_entities = {
+            "products": 0,
+            "shop_points": 0,
+            "sellers": 0,
+            "categories": 0,
+            "inventory_entries": 0
+        }
+        
+        try:
+            # Clear products first (due to foreign key constraints)
+            products_response = await self.client.get(f"{self.base_url}/products/")
+            if products_response.is_success:
+                products = products_response.json()
+                for product in products:
+                    await self.client.delete(f"{self.base_url}/products/{product['id']}")
+                cleared_entities["products"] = len(products)
+            
+            # Clear shop points
+            shop_points_response = await self.client.get(f"{self.base_url}/shop-points/")
+            if shop_points_response.is_success:
+                shop_points = shop_points_response.json()
+                for shop_point in shop_points:
+                    await self.client.delete(f"{self.base_url}/shop-points/{shop_point['id']}")
+                cleared_entities["shop_points"] = len(shop_points)
+            
+            # Clear sellers
+            sellers_response = await self.client.get(f"{self.base_url}/sellers/")
+            if sellers_response.is_success:
+                sellers = sellers_response.json()
+                for seller in sellers:
+                    await self.client.delete(f"{self.base_url}/sellers/{seller['id']}")
+                cleared_entities["sellers"] = len(sellers)
+            
+            # Clear categories
+            categories_response = await self.client.get(f"{self.base_url}/product-categories/")
+            if categories_response.is_success:
+                categories = categories_response.json()
+                for category in categories:
+                    await self.client.delete(f"{self.base_url}/product-categories/{category['id']}")
+                cleared_entities["categories"] = len(categories)
+            
+            return cleared_entities
+            
+        except Exception as e:
+            raise Exception(f"Failed to clear database: {str(e)}")
+    
+    async def get_or_create_sellers(self) -> List[Dict[str, Any]]:
+        """Get existing sellers or create test sellers"""
+        sellers_data = [
+            {
+                "email": "pyaterochka@example.com",
+                "phone": "+79001234567",
+                "full_name": "ООО Пятёрочка",
+                "short_name": "Пятёрочка",
+                "inn": "1234567890",
+                "org_type": 1,
+                "ogrn": "1234567890123",
+                "master_id": 1,
+                "status": 1,
+                "verification_level": 2,
+                "registration_doc_url": "https://example.com/docs/pyaterochka.pdf"
+            },
+            {
+                "email": "magnit@example.com",
+                "phone": "+79001234568",
+                "full_name": "ООО Магнит",
+                "short_name": "Магнит",
+                "inn": "1234567891",
+                "org_type": 1,
+                "ogrn": "1234567890124",
+                "master_id": 2,
+                "status": 1,
+                "verification_level": 2,
+                "registration_doc_url": "https://example.com/docs/magnit.pdf"
+            },
+            {
+                "email": "lenta@example.com",
+                "phone": "+79001234569",
+                "full_name": "ООО Лента",
+                "short_name": "Лента",
+                "inn": "1234567892",
+                "org_type": 1,
+                "ogrn": "1234567890125",
+                "master_id": 3,
+                "status": 1,
+                "verification_level": 2,
+                "registration_doc_url": "https://example.com/docs/lenta.pdf"
+            }
         ]
         
-        # First, try to get existing networks
+        # First, try to get existing sellers
         try:
-            response = await self.client.get(f"{self.base_url}/networks/")
+            response = await self.client.get(f"{self.base_url}/sellers/")
             if response.is_success:
                 try:
-                    existing_networks = response.json()
-                    print(f"📡 Found {len(existing_networks)} existing networks")
+                    existing_sellers = response.json()
+                    print(f"📡 Found {len(existing_sellers)} existing sellers")
                     
-                    # Check if we have all required networks
-                    existing_slugs = {net['slug'] for net in existing_networks}
-                    required_slugs = {net['slug'] for net in networks_data}
+                    # Check if we have all required sellers
+                    existing_emails = {seller['email'] for seller in existing_sellers}
+                    required_emails = {seller['email'] for seller in sellers_data}
                     
-                    if required_slugs.issubset(existing_slugs):
-                        print("✅ All required networks already exist")
-                        self.created_data["networks"] = existing_networks
-                        return existing_networks
+                    if required_emails.issubset(existing_emails):
+                        print("✅ All required sellers already exist")
+                        self.created_data["sellers"] = existing_sellers
+                        return existing_sellers
                     else:
-                        print("⚠️ Some networks missing, will create missing ones")
+                        print("⚠️ Some sellers missing, will create missing ones")
                 except Exception as json_error:
-                    print(f"⚠️ Failed to parse networks JSON: {json_error}")
+                    print(f"⚠️ Failed to parse sellers JSON: {json_error}")
                     print(f"Response text: {response.text}")
             else:
-                print(f"⚠️ Failed to fetch networks: {response.status_code} - {response.text}")
+                print(f"⚠️ Failed to fetch sellers: {response.status_code} - {response.text}")
         except Exception as e:
-            print(f"⚠️ Could not fetch existing networks: {e}")
+            print(f"⚠️ Could not fetch existing sellers: {e}")
         
-        # Create missing networks
-        created_networks = []
-        for network_data in networks_data:
+        # Create missing sellers
+        created_sellers = []
+        for seller_data in sellers_data:
             try:
-                # Try to create network
+                # Try to create seller
                 response = await self.client.post(
-                    f"{self.base_url}/networks/",
-                    json=network_data
+                    f"{self.base_url}/sellers/",
+                    json=seller_data
                 )
                 if response.is_success:
-                    network = response.json()
-                    created_networks.append(network)
-                    self.created_data["networks"].append(network)
-                    print(f"✅ Created network: {network['name']} (ID: {network['id']})")
+                    seller = response.json()
+                    created_sellers.append(seller)
+                    self.created_data["sellers"].append(seller)
+                    print(f"✅ Created seller: {seller['full_name']} (ID: {seller['id']})")
                 elif response.status_code == 400 and ("UNIQUE constraint" in response.text or "already exists" in response.text):
-                    # Network already exists, try to find it
-                    print(f"⚠️ Network {network_data['name']} already exists, fetching...")
+                    # Seller already exists, try to find it
+                    print(f"⚠️ Seller {seller_data['full_name']} already exists, fetching...")
                     try:
-                        # Try to get by slug
-                        slug_response = await self.client.get(f"{self.base_url}/networks/slug/{network_data['slug']}")
-                        if slug_response.is_success:
-                            network = slug_response.json()
-                            created_networks.append(network)
-                            self.created_data["networks"].append(network)
-                            print(f"✅ Found existing network: {network['name']} (ID: {network['id']})")
+                        # Try to get by email
+                        email_response = await self.client.get(f"{self.base_url}/sellers/email/{seller_data['email']}")
+                        if email_response.is_success:
+                            seller = email_response.json()
+                            created_sellers.append(seller)
+                            self.created_data["sellers"].append(seller)
+                            print(f"✅ Found existing seller: {seller['full_name']} (ID: {seller['id']})")
                         else:
-                            print(f"❌ Failed to fetch network by slug: {slug_response.status_code} - {slug_response.text}")
+                            print(f"❌ Failed to fetch seller by email: {email_response.status_code} - {email_response.text}")
                     except Exception as e:
-                        print(f"❌ Could not fetch existing network {network_data['name']}: {e}")
+                        print(f"❌ Could not fetch existing seller {seller_data['full_name']}: {e}")
                 else:
-                    print(f"❌ Failed to create network {network_data['name']}: {response.status_code} - {response.text}")
+                    print(f"❌ Failed to create seller {seller_data['full_name']}: {response.status_code} - {response.text}")
             except Exception as e:
-                print(f"❌ Error with network {network_data['name']}: {e}")
+                print(f"❌ Error with seller {seller_data['full_name']}: {e}")
         
-        return created_networks
+        return created_sellers
     
     async def get_or_create_categories(self) -> List[Dict[str, Any]]:
         """Get existing categories or create test product categories"""
@@ -173,10 +255,10 @@ class DebugDataInitializer:
         
         return created_categories
     
-    async def get_or_create_shop_points(self, networks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Get existing shop points or create test shop points for each network"""
-        if not networks or len(networks) < 5:
-            print("❌ Not enough networks to create shop points")
+    async def get_or_create_shop_points(self, sellers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Get existing shop points or create test shop points for each seller"""
+        if not sellers or len(sellers) < 3:
+            print("❌ Not enough sellers to create shop points")
             return []
         
         # First, try to get existing shop points
@@ -187,16 +269,16 @@ class DebugDataInitializer:
                     existing_shop_points = response.json()
                     print(f"🏪 Found {len(existing_shop_points)} existing shop points")
                     
-                    # Check if we have shop points for all networks
-                    network_ids = {net['id'] for net in networks}
-                    existing_network_ids = {sp['network_id'] for sp in existing_shop_points}
+                    # Check if we have shop points for all sellers
+                    seller_ids = {seller['id'] for seller in sellers}
+                    existing_seller_ids = {sp['seller_id'] for sp in existing_shop_points}
                     
-                    if network_ids.issubset(existing_network_ids):
-                        print("✅ All networks have shop points")
+                    if seller_ids.issubset(existing_seller_ids):
+                        print("✅ All sellers have shop points")
                         self.created_data["shop_points"] = existing_shop_points
                         return existing_shop_points
                     else:
-                        print("⚠️ Some networks missing shop points, will create missing ones")
+                        print("⚠️ Some sellers missing shop points, will create missing ones")
                 except Exception as json_error:
                     print(f"⚠️ Failed to parse shop points JSON: {json_error}")
                     print(f"Response text: {response.text}")
@@ -205,30 +287,21 @@ class DebugDataInitializer:
         except Exception as e:
             print(f"⚠️ Could not fetch existing shop points: {e}")
         
-        # Create shop points for each network
+        # Create shop points for each seller
         shop_points_data = [
             # Пятёрочка
-            {"network_id": networks[0]["id"], "latitude": 55.7558, "longitude": 37.6176},
-            {"network_id": networks[0]["id"], "latitude": 55.7658, "longitude": 37.6276},
-            {"network_id": networks[0]["id"], "latitude": 55.7458, "longitude": 37.6076},
+            {"seller_id": sellers[0]["id"], "latitude": 55.7558, "longitude": 37.6176},
+            {"seller_id": sellers[0]["id"], "latitude": 55.7658, "longitude": 37.6276},
+            {"seller_id": sellers[0]["id"], "latitude": 55.7458, "longitude": 37.6076},
             
             # Магнит
-            {"network_id": networks[1]["id"], "latitude": 55.7558, "longitude": 37.6176},
-            {"network_id": networks[1]["id"], "latitude": 55.7658, "longitude": 37.6276},
+            {"seller_id": sellers[1]["id"], "latitude": 55.7558, "longitude": 37.6176},
+            {"seller_id": sellers[1]["id"], "latitude": 55.7658, "longitude": 37.6276},
             
             # Лента
-            {"network_id": networks[2]["id"], "latitude": 55.7558, "longitude": 37.6176},
-            {"network_id": networks[2]["id"], "latitude": 55.7658, "longitude": 37.6276},
-            {"network_id": networks[2]["id"], "latitude": 55.7458, "longitude": 37.6076},
-            
-            # Перекрёсток
-            {"network_id": networks[3]["id"], "latitude": 55.7558, "longitude": 37.6176},
-            {"network_id": networks[3]["id"], "latitude": 55.7658, "longitude": 37.6276},
-            
-            # Ашан
-            {"network_id": networks[4]["id"], "latitude": 55.7558, "longitude": 37.6176},
-            {"network_id": networks[4]["id"], "latitude": 55.7658, "longitude": 37.6276},
-            {"network_id": networks[4]["id"], "latitude": 55.7458, "longitude": 37.6076},
+            {"seller_id": sellers[2]["id"], "latitude": 55.7558, "longitude": 37.6176},
+            {"seller_id": sellers[2]["id"], "latitude": 55.7658, "longitude": 37.6276},
+            {"seller_id": sellers[2]["id"], "latitude": 55.7458, "longitude": 37.6076},
         ]
         
         created_shop_points = []
@@ -250,10 +323,10 @@ class DebugDataInitializer:
         
         return created_shop_points
     
-    async def get_or_create_products(self, networks: List[Dict[str, Any]], categories: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def get_or_create_products(self, sellers: List[Dict[str, Any]], categories: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Get existing products or create test products"""
-        if not networks or len(networks) < 5 or not categories or len(categories) < 6:
-            print("❌ Not enough networks or categories to create products")
+        if not sellers or len(sellers) < 3 or not categories or len(categories) < 6:
+            print("❌ Not enough sellers or categories to create products")
             return []
         
         # First, try to get existing products
@@ -264,16 +337,16 @@ class DebugDataInitializer:
                     existing_products = response.json()
                     print(f"🛍️ Found {len(existing_products)} existing products")
                     
-                    # Check if we have products for all networks
-                    network_ids = {net['id'] for net in networks}
-                    existing_network_ids = {prod['network_id'] for prod in existing_products}
+                    # Check if we have products for all sellers
+                    seller_ids = {seller['id'] for seller in sellers}
+                    existing_seller_ids = {prod['seller_id'] for prod in existing_products}
                     
-                    if network_ids.issubset(existing_network_ids):
-                        print("✅ All networks have products")
+                    if seller_ids.issubset(existing_seller_ids):
+                        print("✅ All sellers have products")
                         self.created_data["products"] = existing_products
                         return existing_products
                     else:
-                        print("⚠️ Some networks missing products, will create missing ones")
+                        print("⚠️ Some sellers missing products, will create missing ones")
                 except Exception as json_error:
                     print(f"⚠️ Failed to parse products JSON: {json_error}")
                     print(f"Response text: {response.text}")
@@ -290,7 +363,7 @@ class DebugDataInitializer:
                 "description": "Свежее пастеризованное молоко",
                 "article": "MILK001",
                 "code": "1234567890123",
-                "network_id": networks[0]["id"],
+                "seller_id": sellers[0]["id"],
                 "category_ids": [categories[0]["id"]]
             },
             {
@@ -298,7 +371,7 @@ class DebugDataInitializer:
                 "description": "Натуральный кефир",
                 "article": "KEFIR001",
                 "code": "1234567890124",
-                "network_id": networks[1]["id"],
+                "seller_id": sellers[1]["id"],
                 "category_ids": [categories[0]["id"]]
             },
             {
@@ -306,7 +379,7 @@ class DebugDataInitializer:
                 "description": "Твёрдый сыр российского производства",
                 "article": "CHEESE001",
                 "code": "1234567890125",
-                "network_id": networks[2]["id"],
+                "seller_id": sellers[2]["id"],
                 "category_ids": [categories[0]["id"]]
             },
             
@@ -316,7 +389,7 @@ class DebugDataInitializer:
                 "description": "Ржаной хлеб с кориандром",
                 "article": "BREAD001",
                 "code": "1234567890126",
-                "network_id": networks[0]["id"],
+                "seller_id": sellers[0]["id"],
                 "category_ids": [categories[1]["id"]]
             },
             {
@@ -324,7 +397,7 @@ class DebugDataInitializer:
                 "description": "Сдобные булочки с маковой начинкой",
                 "article": "BUN001",
                 "code": "1234567890127",
-                "network_id": networks[1]["id"],
+                "seller_id": sellers[1]["id"],
                 "category_ids": [categories[1]["id"]]
             },
             
@@ -334,7 +407,7 @@ class DebugDataInitializer:
                 "description": "Свежая курица без костей",
                 "article": "CHICKEN001",
                 "code": "1234567890128",
-                "network_id": networks[2]["id"],
+                "seller_id": sellers[2]["id"],
                 "category_ids": [categories[2]["id"]]
             },
             {
@@ -342,7 +415,7 @@ class DebugDataInitializer:
                 "description": "Премиальная говяжья вырезка",
                 "article": "BEEF001",
                 "code": "1234567890129",
-                "network_id": networks[3]["id"],
+                "seller_id": sellers[2]["id"],
                 "category_ids": [categories[2]["id"]]
             },
             
@@ -352,7 +425,7 @@ class DebugDataInitializer:
                 "description": "Сладкие помидоры черри",
                 "article": "TOMATO001",
                 "code": "1234567890130",
-                "network_id": networks[0]["id"],
+                "seller_id": sellers[0]["id"],
                 "category_ids": [categories[3]["id"]]
             },
             {
@@ -360,7 +433,7 @@ class DebugDataInitializer:
                 "description": "Зелёные кисло-сладкие яблоки",
                 "article": "APPLE001",
                 "code": "1234567890131",
-                "network_id": networks[1]["id"],
+                "seller_id": sellers[1]["id"],
                 "category_ids": [categories[3]["id"]]
             },
             
@@ -370,7 +443,7 @@ class DebugDataInitializer:
                 "description": "100% апельсиновый сок",
                 "article": "JUICE001",
                 "code": "1234567890132",
-                "network_id": networks[2]["id"],
+                "seller_id": sellers[2]["id"],
                 "category_ids": [categories[4]["id"]]
             },
             {
@@ -378,7 +451,7 @@ class DebugDataInitializer:
                 "description": "Природная минеральная вода",
                 "article": "WATER001",
                 "code": "1234567890133",
-                "network_id": networks[3]["id"],
+                "seller_id": sellers[2]["id"],
                 "category_ids": [categories[4]["id"]]
             },
             
@@ -388,7 +461,7 @@ class DebugDataInitializer:
                 "description": "Молочный шоколад с орехами",
                 "article": "CHOCOLATE001",
                 "code": "1234567890134",
-                "network_id": networks[4]["id"],
+                "seller_id": sellers[2]["id"],
                 "category_ids": [categories[5]["id"]]
             },
             {
@@ -396,7 +469,7 @@ class DebugDataInitializer:
                 "description": "Домашнее овсяное печенье",
                 "article": "COOKIE001",
                 "code": "1234567890135",
-                "network_id": networks[0]["id"],
+                "seller_id": sellers[0]["id"],
                 "category_ids": [categories[5]["id"]]
             }
         ]
@@ -501,12 +574,12 @@ class DebugDataInitializer:
         print("🚀 Starting test data initialization...")
         
         try:
-            # Get or create networks
-            print("\n📡 Getting or creating networks...")
-            networks = await self.get_or_create_networks()
+            # Get or create sellers
+            print("\n📡 Getting or creating sellers...")
+            sellers = await self.get_or_create_sellers()
             
-            if not networks:
-                print("❌ Failed to get or create networks. Stopping initialization.")
+            if not sellers:
+                print("❌ Failed to get or create sellers. Stopping initialization.")
                 return None
             
             # Get or create categories
@@ -519,7 +592,7 @@ class DebugDataInitializer:
             
             # Get or create shop points
             print("\n🏪 Getting or creating shop points...")
-            shop_points = await self.get_or_create_shop_points(networks)
+            shop_points = await self.get_or_create_shop_points(sellers)
             
             if not shop_points:
                 print("❌ Failed to get or create shop points. Stopping initialization.")
@@ -527,7 +600,7 @@ class DebugDataInitializer:
             
             # Get or create products
             print("\n🛍️ Getting or creating products...")
-            products = await self.get_or_create_products(networks, categories)
+            products = await self.get_or_create_products(sellers, categories)
             
             if not products:
                 print("❌ Failed to get or create products. Stopping initialization.")
@@ -539,7 +612,7 @@ class DebugDataInitializer:
             
             print(f"\n✅ Test data initialization completed!")
             print(f"📊 Summary:")
-            print(f"   - Networks: {len(networks)}")
+            print(f"   - Sellers: {len(sellers)}")
             print(f"   - Categories: {len(categories)}")
             print(f"   - Shop points: {len(shop_points)}")
             print(f"   - Products: {len(products)}")

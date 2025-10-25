@@ -35,20 +35,20 @@ async def get_product(request: Request, product_id: int) -> schemas.Product:
     return await products_manager.get_product_by_id(request.state.session, product_id)
 
 
-@router.get("/network/{network_id}", response_model=List[schemas.Product])
-async def get_products_by_network(request: Request, network_id: int) -> List[schemas.Product]:
+@router.get("/seller/{seller_id}", response_model=List[schemas.Product])
+async def get_products_by_seller(request: Request, seller_id: int) -> List[schemas.Product]:
     """
-    Get products by network ID
+    Get products by seller ID
     """
-    return await products_manager.get_products_by_network(request.state.session, network_id)
+    return await products_manager.get_products_by_seller(request.state.session, seller_id)
 
 
-@router.get("/{product_id}/with-network", response_model=schemas.ProductWithNetwork)
-async def get_product_with_network(request: Request, product_id: int) -> schemas.ProductWithNetwork:
+@router.get("/{product_id}/with-seller", response_model=schemas.ProductWithSeller)
+async def get_product_with_seller(request: Request, product_id: int) -> schemas.ProductWithSeller:
     """
-    Get product with network information
+    Get product with seller information
     """
-    return await products_manager.get_product_with_network(request.state.session, product_id)
+    return await products_manager.get_product_with_seller(request.state.session, product_id)
 
 
 @router.get("/{product_id}/with-categories", response_model=schemas.ProductWithCategories)

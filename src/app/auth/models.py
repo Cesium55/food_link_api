@@ -1,0 +1,32 @@
+from models import Base
+from typing import Optional
+from sqlalchemy import Column, Integer, String, Boolean, Text, TIMESTAMP
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import UUID
+from datetime import datetime
+import uuid
+
+
+class User(Base):
+    """User model for mobile app authentication"""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_seller: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class RefreshToken(Base):
+    """Refresh token model"""
+
+    __tablename__ = "refresh_tokens"
+ 
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    token: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+

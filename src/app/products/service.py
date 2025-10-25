@@ -4,7 +4,8 @@ from sqlalchemy import select, func, and_, delete, update, insert
 from sqlalchemy.orm import selectinload
 
 from app.products import schemas
-from models import Product, ProductImage, ProductCategory, product_category_relations
+from app.products.models import Product, ProductImage, ProductEntry
+from app.product_categories.models import ProductCategory, product_category_relations
 
 
 class ProductsService:
@@ -22,7 +23,7 @@ class ProductsService:
                 description=schema.description,
                 article=schema.article,
                 code=schema.code,
-                network_id=schema.network_id
+                seller_id=schema.seller_id
             )
             .returning(Product)
         )
@@ -56,13 +57,13 @@ class ProductsService:
         )
         return result.scalars().all()
 
-    async def get_products_by_network(
-        self, session: AsyncSession, network_id: int
+    async def get_products_by_seller(
+        self, session: AsyncSession, seller_id: int
     ) -> List[Product]:
-        """Get products by network ID"""
+        """Get products by seller ID"""
         result = await session.execute(
             select(Product)
-            .where(Product.network_id == network_id)
+            .where(Product.seller_id == seller_id)
             .options(selectinload(Product.images))
             .order_by(Product.name)
         )
@@ -142,19 +143,19 @@ class ProductsService:
         )
         total_products = total_products_result.scalar() or 0
 
-        total_networks_result = await session.execute(
-            select(func.count(func.distinct(Product.network_id)))
+        total_sellers_result = await session.execute(
+            select(func.count(func.distinct(Product.seller_id)))
         )
-        total_networks = total_networks_result.scalar() or 0
+        total_sellers = total_sellers_result.scalar() or 0
 
-        avg_products_per_network = (
-            total_products / total_networks if total_networks > 0 else 0.0
+        avg_products_per_seller = (
+            total_products / total_sellers if total_sellers > 0 else 0.0
         )
 
         return schemas.ProductSummary(
             total_products=total_products,
-            total_networks=total_networks,
-            avg_products_per_network=avg_products_per_network
+            total_sellers=total_sellers,
+            avg_products_per_seller=avg_products_per_seller
         )
 
     async def get_products_by_ids(
