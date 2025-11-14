@@ -25,6 +25,7 @@ class SellerBase(BaseModel):
 
     full_name: str = Field(..., min_length=1, max_length=1000, description="Full name")
     short_name: str = Field(..., min_length=1, max_length=255, description="Short name")
+    description: Optional[str] = Field(default=None, description="Seller description")
     inn: str = Field(..., min_length=10, max_length=12, description="INN")
     is_IP: bool = Field(..., description="Is Individual Entrepreneur")
     ogrn: str = Field(..., min_length=13, max_length=15, description="OGRN")
@@ -70,6 +71,7 @@ class SellerCreate(BaseModel):
 
     full_name: str = Field(..., min_length=1, max_length=1000, description="Full name")
     short_name: str = Field(..., min_length=1, max_length=255, description="Short name")
+    description: Optional[str] = Field(default=None, description="Seller description")
     inn: str = Field(..., min_length=10, max_length=12, description="INN")
     is_IP: bool = Field(..., description="Is Individual Entrepreneur")
     ogrn: str = Field(..., min_length=13, max_length=15, description="OGRN")
@@ -113,6 +115,7 @@ class SellerUpdate(BaseModel):
 
     full_name: Optional[str] = Field(None, min_length=1, max_length=1000, description="Полное название организации")
     short_name: Optional[str] = Field(None, min_length=1, max_length=255, description="Название")
+    description: Optional[str] = Field(None, description="Описание продавца")
     inn: Optional[str] = Field(None, min_length=10, max_length=12, description="ИНН")
     is_IP: Optional[bool] = Field(None, description="Индивидуальный предпрениматель?")
     ogrn: Optional[str] = Field(None, min_length=13, max_length=15, description="ОГРН \ ОГРНИП")
@@ -138,6 +141,23 @@ class Seller(SellerBase):
     )
 
 
+class PublicSeller(BaseModel):
+    """Public schema for displaying seller (without sensitive data)"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int = Field(..., description="Unique identifier")
+    short_name: str = Field(..., min_length=1, max_length=255, description="Short name")
+    full_name: str = Field(..., min_length=1, max_length=1000, description="Full name")
+    description: Optional[str] = Field(default=None, description="Seller description")
+    is_IP: bool = Field(..., description="Is Individual Entrepreneur")
+    status: int = Field(..., ge=0, description="Status")
+    verification_level: int = Field(..., ge=0, description="Verification level")
+    images: List[SellerImage] = Field(
+        default_factory=list, description="Seller images"
+    )
+
+
 class SellerWithShopPoints(Seller):
     """Seller schema with shop points"""
 
@@ -148,6 +168,25 @@ class SellerWithShopPoints(Seller):
 
 class SellerWithDetails(Seller):
     """Seller schema with full information"""
+
+    shop_points: List["ShopPoint"] = Field(
+        default_factory=list, description="Seller shop points"
+    )
+    products: List["Product"] = Field(
+        default_factory=list, description="Seller products"
+    )
+
+
+class PublicSellerWithShopPoints(PublicSeller):
+    """Public seller schema with shop points (without sensitive data)"""
+
+    shop_points: List["ShopPoint"] = Field(
+        default_factory=list, description="Seller shop points"
+    )
+
+
+class PublicSellerWithDetails(PublicSeller):
+    """Public seller schema with full information (without sensitive data)"""
 
     shop_points: List["ShopPoint"] = Field(
         default_factory=list, description="Seller shop points"
@@ -175,6 +214,8 @@ def _rebuild_models():
 
         SellerWithShopPoints.model_rebuild()
         SellerWithDetails.model_rebuild()
+        PublicSellerWithShopPoints.model_rebuild()
+        PublicSellerWithDetails.model_rebuild()
     except ImportError:
         pass
 

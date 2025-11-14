@@ -9,7 +9,7 @@ router = APIRouter(prefix="/product-categories", tags=["product-categories"])
 categories_manager = ProductCategoriesManager()
 
 
-@router.post("/", response_model=schemas.ProductCategory, status_code=201)
+@router.post("", response_model=schemas.ProductCategory, status_code=201)
 async def create_category(
     request: Request, category_data: schemas.ProductCategoryCreate
 ) -> schemas.ProductCategory:
@@ -19,7 +19,7 @@ async def create_category(
     return await categories_manager.create_category(request.state.session, category_data)
 
 
-@router.get("/", response_model=List[schemas.ProductCategory])
+@router.get("", response_model=List[schemas.ProductCategory])
 async def get_categories(request: Request) -> List[schemas.ProductCategory]:
     """
     Get list of categories

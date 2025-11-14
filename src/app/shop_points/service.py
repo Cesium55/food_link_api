@@ -20,7 +20,14 @@ class ShopPointsService:
             .values(
                 seller_id=schema.seller_id,
                 latitude=schema.latitude,
-                longitude=schema.longitude
+                longitude=schema.longitude,
+                address_raw=schema.address_raw,
+                address_formated=schema.address_formated,
+                region=schema.region,
+                city=schema.city,
+                street=schema.street,
+                house=schema.house,
+                geo_id=schema.geo_id
             )
             .returning(ShopPoint)
         )
@@ -81,6 +88,20 @@ class ShopPointsService:
             update_data['latitude'] = schema.latitude
         if schema.longitude is not None:
             update_data['longitude'] = schema.longitude
+        if schema.address_raw is not None:
+            update_data['address_raw'] = schema.address_raw
+        if schema.address_formated is not None:
+            update_data['address_formated'] = schema.address_formated
+        if schema.region is not None:
+            update_data['region'] = schema.region
+        if schema.city is not None:
+            update_data['city'] = schema.city
+        if schema.street is not None:
+            update_data['street'] = schema.street
+        if schema.house is not None:
+            update_data['house'] = schema.house
+        if schema.geo_id is not None:
+            update_data['geo_id'] = schema.geo_id
 
         # Update shop point
         if update_data:
@@ -145,3 +166,25 @@ class ShopPointsService:
             .order_by(ShopPoint.id)
         )
         return result.scalars().all()
+    
+    async def create_shop_point_by_address(
+        self, session: AsyncSession, seller_id: int, geocoded_data: dict
+    ) -> ShopPoint:
+        """Create shop point with geocoded data"""
+        result = await session.execute(
+            insert(ShopPoint)
+            .values(
+                seller_id=seller_id,
+                latitude=geocoded_data.get("latitude"),
+                longitude=geocoded_data.get("longitude"),
+                address_raw=geocoded_data.get("address_raw"),
+                address_formated=geocoded_data.get("formatted_address"),
+                region=geocoded_data.get("region"),
+                city=geocoded_data.get("city"),
+                street=geocoded_data.get("street"),
+                house=geocoded_data.get("house"),
+                geo_id=geocoded_data.get("geo_id")
+            )
+            .returning(ShopPoint)
+        )
+        return result.scalar_one()

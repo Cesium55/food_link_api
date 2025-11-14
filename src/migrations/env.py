@@ -10,9 +10,11 @@ from config import settings
 # Import all models to ensure they are registered with Base.metadata
 from app.sellers.models import Seller, SellerImage
 from app.shop_points.models import ShopPoint, ShopPointImage
-from app.products.models import Product, ProductImage, ProductEntry
+from app.products.models import Product, ProductImage
+from app.offers.models import Offer
 from app.product_categories.models import ProductCategory, product_category_relations
 from app.auth.models import User, RefreshToken
+from app.purchases.models import Purchase, PurchaseOffer, PurchaseOfferResult
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

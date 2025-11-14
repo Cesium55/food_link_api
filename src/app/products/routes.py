@@ -1,7 +1,9 @@
 from typing import List
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from app.products import schemas
 from app.products.manager import ProductsManager
+from utils.auth_dependencies import get_current_user
+from app.auth.models import User
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -9,17 +11,20 @@ router = APIRouter(prefix="/products", tags=["products"])
 products_manager = ProductsManager()
 
 
-@router.post("/", response_model=schemas.Product, status_code=201)
+@router.post("", response_model=schemas.Product, status_code=201)
 async def create_product(
-    request: Request, product_data: schemas.ProductCreate
+    request: Request, 
+    product_data: schemas.ProductCreate,
+    current_user: User = Depends(get_current_user)
 ) -> schemas.Product:
     """
-    Create a new product
+    Create a new product (with optional categories and attributes).
+    Seller ID is automatically determined from the authenticated user.
     """
-    return await products_manager.create_product(request.state.session, product_data)
+    return await products_manager.create_product(request.state.session, product_data, current_user)
 
 
-@router.get("/", response_model=List[schemas.Product])
+@router.get("", response_model=List[schemas.Product])
 async def get_products(request: Request) -> List[schemas.Product]:
     """
     Get list of products
@@ -103,3 +108,63 @@ async def get_products_by_ids(
     Get products by list of IDs
     """
     return await products_manager.get_products_by_ids(request.state.session, product_ids)
+
+
+@router.post("/attributes", response_model=schemas.ProductAttribute, status_code=201)
+async def create_product_attribute(
+    request: Request, attribute_data: schemas.ProductAttributeCreate
+) -> schemas.ProductAttribute:
+    """
+    Create a new product attribute
+    """
+    return await products_manager.create_product_attribute(request.state.session, attribute_data)
+
+
+@router.get("/attributes/{attribute_id}", response_model=schemas.ProductAttribute)
+async def get_product_attribute(
+    request: Request, attribute_id: int
+) -> schemas.ProductAttribute:
+    """
+    Get product attribute by ID
+    """
+    return await products_manager.get_product_attribute_by_id(request.state.session, attribute_id)
+
+
+@router.get("/{product_id}/attributes", response_model=List[schemas.ProductAttribute])
+async def get_product_attributes(
+    request: Request, product_id: int
+) -> List[schemas.ProductAttribute]:
+    """
+    Get all attributes for a product
+    """
+    return await products_manager.get_product_attributes_by_product(request.state.session, product_id)
+
+
+@router.get("/{product_id}/attributes/{slug}", response_model=schemas.ProductAttribute)
+async def get_product_attribute_by_slug(
+    request: Request, product_id: int, slug: str
+) -> schemas.ProductAttribute:
+    """
+    Get product attribute by product ID and slug
+    """
+    return await products_manager.get_product_attribute_by_product_and_slug(request.state.session, product_id, slug)
+
+
+@router.put("/attributes/{attribute_id}", response_model=schemas.ProductAttribute)
+async def update_product_attribute(
+    request: Request,
+    attribute_id: int,
+    attribute_data: schemas.ProductAttributeUpdate
+) -> schemas.ProductAttribute:
+    """
+    Update product attribute
+    """
+    return await products_manager.update_product_attribute(request.state.session, attribute_id, attribute_data)
+
+
+@router.delete("/attributes/{attribute_id}", status_code=204)
+async def delete_product_attribute(request: Request, attribute_id: int) -> None:
+    """
+    Delete product attribute
+    """
+    await products_manager.delete_product_attribute(request.state.session, attribute_id)

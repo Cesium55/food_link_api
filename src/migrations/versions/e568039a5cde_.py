@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: 7f892c7aab42
+Revision ID: e568039a5cde
 Revises: 
-Create Date: 2025-10-16 15:02:24.027026
+Create Date: 2025-10-27 15:49:06.638696
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '7f892c7aab42'
+revision: str = 'e568039a5cde'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -33,20 +33,40 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('slug')
     )
+    op.create_table('refresh_tokens',
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('token', sa.UUID(), nullable=False),
+    sa.Column('expires_at', sa.TIMESTAMP(), nullable=False),
+    sa.Column('created_at', sa.TIMESTAMP(), nullable=False),
+    sa.Column('is_revoked', sa.Boolean(), nullable=False),
+    sa.PrimaryKeyConstraint('token')
+    )
+    op.create_index(op.f('ix_refresh_tokens_user_id'), 'refresh_tokens', ['user_id'], unique=False)
     op.create_table('sellers',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('email', sa.String(length=255), nullable=False),
     sa.Column('phone', sa.String(length=20), nullable=True),
     sa.Column('full_name', sa.String(length=1000), nullable=False),
     sa.Column('short_name', sa.String(length=255), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
     sa.Column('inn', sa.String(length=12), nullable=False),
-    sa.Column('org_type', sa.Integer(), nullable=False),
+    sa.Column('is_IP', sa.Boolean(), nullable=False),
     sa.Column('ogrn', sa.String(length=15), nullable=False),
     sa.Column('master_id', sa.Integer(), nullable=False),
     sa.Column('status', sa.Integer(), nullable=False),
     sa.Column('verification_level', sa.Integer(), nullable=False),
     sa.Column('registration_doc_url', sa.String(length=2048), nullable=False),
     sa.Column('balance', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('email'),
+    sa.UniqueConstraint('phone')
+    )
+    op.create_table('users',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('email', sa.String(length=255), nullable=False),
+    sa.Column('phone', sa.String(length=20), nullable=True),
+    sa.Column('password_hash', sa.String(length=255), nullable=False),
+    sa.Column('is_seller', sa.Boolean(), nullable=False),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email'),
     sa.UniqueConstraint('phone')
@@ -76,12 +96,16 @@ def upgrade() -> None:
     sa.Column('seller_id', sa.Integer(), nullable=False),
     sa.Column('latitude', sa.Double(), nullable=True),
     sa.Column('longitude', sa.Double(), nullable=True),
-    sa.CheckConstraint('latitude >= -90 AND latitude <= 90', name='ck_shop_point_latitude_range'),
-    sa.CheckConstraint('longitude >= -180 AND longitude <= 180', name='ck_shop_point_longitude_range'),
+    sa.Column('address_raw', sa.Text(), nullable=True),
+    sa.Column('address_formated', sa.Text(), nullable=True),
+    sa.Column('region', sa.String(length=255), nullable=True),
+    sa.Column('city', sa.String(length=255), nullable=True),
+    sa.Column('street', sa.String(length=255), nullable=True),
+    sa.Column('house', sa.String(length=50), nullable=True),
+    sa.Column('geo_id', sa.String(length=255), nullable=True),
     sa.ForeignKeyConstraint(['seller_id'], ['sellers.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index('ix_shop_points_coordinates', 'shop_points', ['latitude', 'longitude'], unique=False)
     op.create_index(op.f('ix_shop_points_seller_id'), 'shop_points', ['seller_id'], unique=False)
     op.create_table('product_category_relations',
     sa.Column('category_id', sa.Integer(), nullable=False),
@@ -137,10 +161,12 @@ def downgrade() -> None:
     op.drop_table('product_entries')
     op.drop_table('product_category_relations')
     op.drop_index(op.f('ix_shop_points_seller_id'), table_name='shop_points')
-    op.drop_index('ix_shop_points_coordinates', table_name='shop_points')
     op.drop_table('shop_points')
     op.drop_table('seller_images')
     op.drop_table('products')
+    op.drop_table('users')
     op.drop_table('sellers')
+    op.drop_index(op.f('ix_refresh_tokens_user_id'), table_name='refresh_tokens')
+    op.drop_table('refresh_tokens')
     op.drop_table('product_categories')
     # ### end Alembic commands ###

@@ -11,7 +11,7 @@ router = APIRouter(prefix="/sellers", tags=["sellers"])
 sellers_manager = SellersManager()
 
 
-@router.post("/", response_model=schemas.SellerBase, status_code=201)
+@router.post("", response_model=schemas.SellerBase, status_code=201)
 async def create_seller(
     request: Request, seller_data: schemas.SellerCreate, current_user: User = Depends(get_current_user)
 ):
@@ -32,48 +32,50 @@ async def get_my_seller(
     return await sellers_manager.get_seller_by_email(request.state.session, current_user.email)
 
 
-@router.get("/", response_model=List[schemas.Seller])
-async def get_sellers(request: Request) -> List[schemas.Seller]:
+@router.get("", response_model=List[schemas.PublicSeller])
+async def get_sellers(request: Request) -> List[schemas.PublicSeller]:
     """
-    Get list of sellers
+    Get list of sellers (public data only)
     """
     return await sellers_manager.get_sellers(request.state.session)
 
 
-@router.get("/{seller_id}", response_model=schemas.Seller)
-async def get_seller(request: Request, seller_id: int) -> schemas.Seller:
+@router.get("/{seller_id}", response_model=schemas.PublicSeller)
+async def get_seller(request: Request, seller_id: int) -> schemas.PublicSeller:
     """
-    Get seller by ID
+    Get seller by ID (public data only)
     """
     return await sellers_manager.get_seller_by_id(request.state.session, seller_id)
 
 
-@router.get("/email/{email}", response_model=schemas.Seller)
-async def get_seller_by_email(request: Request, email: str) -> schemas.Seller:
-    """
-    Get seller by email
-    """
-    return await sellers_manager.get_seller_by_email(request.state.session, email)
+# NOTE: This endpoint is not exposed for security reasons (exposes sensitive data)
+# Use GET /me for authenticated users to get their own seller data
+# @router.get("/email/{email}", response_model=schemas.Seller)
+# async def get_seller_by_email(request: Request, email: str) -> schemas.Seller:
+#     """
+#     Get seller by email
+#     """
+#     return await sellers_manager.get_seller_by_email(request.state.session, email)
 
 
-@router.get("/{seller_id}/with-shops", response_model=schemas.SellerWithShopPoints)
+@router.get("/{seller_id}/with-shops", response_model=schemas.PublicSellerWithShopPoints)
 async def get_seller_with_shops(
     request: Request, seller_id: int
-) -> schemas.SellerWithShopPoints:
+) -> schemas.PublicSellerWithShopPoints:
     """
-    Get seller with shop points
+    Get seller with shop points (public data only)
     """
     return await sellers_manager.get_seller_with_shop_points(
         request.state.session, seller_id
     )
 
 
-@router.get("/{seller_id}/with-details", response_model=schemas.SellerWithDetails)
+@router.get("/{seller_id}/with-details", response_model=schemas.PublicSellerWithDetails)
 async def get_seller_with_details(
     request: Request, seller_id: int
-) -> schemas.SellerWithDetails:
+) -> schemas.PublicSellerWithDetails:
     """
-    Get seller with full details
+    Get seller with full details (public data only)
     """
     return await sellers_manager.get_seller_with_details(
         request.state.session, seller_id
@@ -108,12 +110,12 @@ async def get_sellers_summary(request: Request) -> schemas.SellerSummary:
     return await sellers_manager.get_sellers_summary(request.state.session)
 
 
-@router.post("/by-ids", response_model=List[schemas.Seller])
+@router.post("/by-ids", response_model=List[schemas.PublicSeller])
 async def get_sellers_by_ids(
     request: Request, seller_ids: List[int]
-) -> List[schemas.Seller]:
+) -> List[schemas.PublicSeller]:
     """
-    Get sellers by list of IDs
+    Get sellers by list of IDs (public data only)
     """
     return await sellers_manager.get_sellers_by_ids(
         request.state.session, seller_ids

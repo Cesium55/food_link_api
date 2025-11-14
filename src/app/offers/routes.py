@@ -1,0 +1,81 @@
+from typing import List
+from fastapi import APIRouter, Request
+from app.offers import schemas
+from app.offers.manager import OffersManager
+
+router = APIRouter(prefix="/offers", tags=["offers"])
+
+# Initialize manager
+offers_manager = OffersManager()
+
+
+@router.post("", response_model=schemas.Offer, status_code=201)
+async def create_offer(
+    request: Request,
+    offer_data: schemas.OfferCreate
+) -> schemas.Offer:
+    """
+    Create a new offer
+    """
+    return await offers_manager.create_offer(request.state.session, offer_data)
+
+
+@router.get("", response_model=List[schemas.Offer])
+async def get_offers(request: Request) -> List[schemas.Offer]:
+    """
+    Get list of offers
+    """
+    return await offers_manager.get_offers(request.state.session)
+
+
+@router.get("/with-products", response_model=List[schemas.OfferWithProduct])
+async def get_offers_with_products(request: Request) -> List[schemas.OfferWithProduct]:
+    """
+    Get list of offers with product information
+    """
+    return await offers_manager.get_offers_with_products(request.state.session)
+
+
+@router.get("/{offer_id}", response_model=schemas.Offer)
+async def get_offer(
+    request: Request,
+    offer_id: int
+) -> schemas.Offer:
+    """
+    Get offer by ID
+    """
+    return await offers_manager.get_offer_by_id(request.state.session, offer_id)
+
+
+@router.get("/{offer_id}/with-product", response_model=schemas.OfferWithProduct)
+async def get_offer_with_product(
+    request: Request,
+    offer_id: int
+) -> schemas.OfferWithProduct:
+    """
+    Get offer with product information
+    """
+    return await offers_manager.get_offer_with_product(request.state.session, offer_id)
+
+
+@router.put("/{offer_id}", response_model=schemas.Offer)
+async def update_offer(
+    request: Request,
+    offer_id: int,
+    offer_data: schemas.OfferUpdate
+) -> schemas.Offer:
+    """
+    Update offer
+    """
+    return await offers_manager.update_offer(request.state.session, offer_id, offer_data)
+
+
+@router.delete("/{offer_id}", status_code=204)
+async def delete_offer(
+    request: Request,
+    offer_id: int
+) -> None:
+    """
+    Delete offer
+    """
+    await offers_manager.delete_offer(request.state.session, offer_id)

@@ -4,7 +4,7 @@ from sqlalchemy import select, func, and_, delete, update, insert
 from sqlalchemy.orm import selectinload
 
 from app.products import schemas
-from app.products.models import Product, ProductImage, ProductEntry
+from app.products.models import Product, ProductImage, ProductAttribute
 from app.product_categories.models import ProductCategory, product_category_relations
 
 
@@ -12,7 +12,7 @@ class ProductsService:
     """Service for working with products"""
 
     async def create_product(
-        self, session: AsyncSession, schema: schemas.ProductCreate
+        self, session: AsyncSession, schema: schemas.ProductCreate, seller_id: int
     ) -> Product:
         """Create a new product"""
         # Insert product and get the ID
@@ -23,7 +23,7 @@ class ProductsService:
                 description=schema.description,
                 article=schema.article,
                 code=schema.code,
-                seller_id=schema.seller_id
+                seller_id=seller_id
             )
             .returning(Product)
         )
@@ -32,6 +32,10 @@ class ProductsService:
         # Add categories if provided
         if schema.category_ids:
             await self._add_categories_to_product(session, product.id, schema.category_ids)
+        
+        # Add attributes if provided
+        if schema.attributes:
+            await self._add_attributes_to_product(session, product.id, schema.attributes)
         
         return product
 
@@ -42,7 +46,10 @@ class ProductsService:
         result = await session.execute(
             select(Product)
             .where(Product.id == product_id)
-            .options(selectinload(Product.images))
+            .options(
+                selectinload(Product.images),
+                selectinload(Product.attributes)
+            )
         )
         return result.scalar_one_or_none()
 
@@ -52,7 +59,10 @@ class ProductsService:
         """Get list of all products"""
         result = await session.execute(
             select(Product)
-            .options(selectinload(Product.images))
+            .options(
+                selectinload(Product.images),
+                selectinload(Product.attributes)
+            )
             .order_by(Product.name)
         )
         return result.scalars().all()
@@ -64,7 +74,10 @@ class ProductsService:
         result = await session.execute(
             select(Product)
             .where(Product.seller_id == seller_id)
-            .options(selectinload(Product.images))
+            .options(
+                selectinload(Product.images),
+                selectinload(Product.attributes)
+            )
             .order_by(Product.name)
         )
         return result.scalars().all()
@@ -77,7 +90,10 @@ class ProductsService:
             select(Product)
             .join(Product.categories)
             .where(ProductCategory.id == category_id)
-            .options(selectinload(Product.images))
+            .options(
+                selectinload(Product.images),
+                selectinload(Product.attributes)
+            )
             .order_by(Product.name)
         )
         return result.scalars().all()
@@ -117,11 +133,14 @@ class ProductsService:
         if schema.category_ids is not None:
             await self._update_categories_for_product(session, product_id, schema.category_ids)
 
-        # Return updated product with images
+        # Return updated product with images and attributes
         result = await session.execute(
             select(Product)
             .where(Product.id == product_id)
-            .options(selectinload(Product.images))
+            .options(
+                selectinload(Product.images),
+                selectinload(Product.attributes)
+            )
         )
         updated_product = result.scalar_one()
         return updated_product
@@ -165,7 +184,10 @@ class ProductsService:
         result = await session.execute(
             select(Product)
             .where(Product.id.in_(product_ids))
-            .options(selectinload(Product.images))
+            .options(
+                selectinload(Product.images),
+                selectinload(Product.attributes)
+            )
             .order_by(Product.name)
         )
         return result.scalars().all()
@@ -193,7 +215,107 @@ class ProductsService:
                 product_category_relations.c.product_id == product_id
             )
         )
-        
-        # Add new categories if provided
-        if category_ids:
-            await self._add_categories_to_product(session, product_id, category_ids)
+
+    async def _add_attributes_to_product(
+        self, session: AsyncSession, product_id: int, attributes: List[schemas.ProductAttributeCreateInline]
+    ) -> None:
+        """Add attributes to product"""
+        if not attributes:
+            return
+            
+        # Insert attributes using SQLAlchemy Core
+        values = [
+            {
+                "product_id": product_id,
+                "slug": attr.slug,
+                "name": attr.name,
+                "value": attr.value
+            }
+            for attr in attributes
+        ]
+        await session.execute(
+            insert(ProductAttribute).values(values)
+        )
+
+    async def create_product_attribute(
+        self, session: AsyncSession, schema: schemas.ProductAttributeCreate
+    ) -> ProductAttribute:
+        """Create a new product attribute"""
+        result = await session.execute(
+            insert(ProductAttribute)
+            .values(
+                product_id=schema.product_id,
+                slug=schema.slug,
+                name=schema.name,
+                value=schema.value
+            )
+            .returning(ProductAttribute)
+        )
+        return result.scalar_one()
+
+    async def get_product_attribute_by_id(
+        self, session: AsyncSession, attribute_id: int
+    ) -> Optional[ProductAttribute]:
+        """Get product attribute by ID"""
+        result = await session.execute(
+            select(ProductAttribute)
+            .where(ProductAttribute.id == attribute_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_product_attributes_by_product(
+        self, session: AsyncSession, product_id: int
+    ) -> List[ProductAttribute]:
+        """Get all attributes for a product"""
+        result = await session.execute(
+            select(ProductAttribute)
+            .where(ProductAttribute.product_id == product_id)
+            .order_by(ProductAttribute.slug)
+        )
+        return result.scalars().all()
+
+    async def get_product_attribute_by_product_and_slug(
+        self, session: AsyncSession, product_id: int, slug: str
+    ) -> Optional[ProductAttribute]:
+        """Get product attribute by product ID and slug"""
+        result = await session.execute(
+            select(ProductAttribute)
+            .where(
+                and_(
+                    ProductAttribute.product_id == product_id,
+                    ProductAttribute.slug == slug
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def update_product_attribute(
+        self, session: AsyncSession, attribute_id: int, schema: schemas.ProductAttributeUpdate
+    ) -> ProductAttribute:
+        """Update product attribute"""
+        update_data = {}
+        if schema.name is not None:
+            update_data['name'] = schema.name
+        if schema.value is not None:
+            update_data['value'] = schema.value
+
+        if update_data:
+            await session.execute(
+                update(ProductAttribute)
+                .where(ProductAttribute.id == attribute_id)
+                .values(**update_data)
+            )
+
+        result = await session.execute(
+            select(ProductAttribute)
+            .where(ProductAttribute.id == attribute_id)
+        )
+        return result.scalar_one()
+
+    async def delete_product_attribute(
+        self, session: AsyncSession, attribute_id: int
+    ) -> None:
+        """Delete product attribute"""
+        await session.execute(
+            delete(ProductAttribute).where(ProductAttribute.id == attribute_id)
+        )

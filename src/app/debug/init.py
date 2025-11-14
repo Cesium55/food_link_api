@@ -1,11 +1,16 @@
 import asyncio
 import httpx
-from typing import List, Dict, Any
+import json
+import os
+from typing import List, Dict, Any, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.sellers.schemas import SellerCreate
 from app.shop_points.schemas import ShopPointCreate
 from app.products.schemas import ProductCreate
-from app.product_categories.schemas import ProductCategoryCreate
-from app.inventory.schemas import ProductEntryCreate
+from app.product_categories.service import ProductCategoriesService
+from app.product_categories.models import ProductCategory
+from app.offers.schemas import OfferCreate
 
 
 class DebugDataInitializer:
@@ -19,7 +24,7 @@ class DebugDataInitializer:
             "shop_points": [],
             "categories": [],
             "products": [],
-            "inventory_entries": []
+            "offers_entries": []
         }
     
     async def close(self):
@@ -33,7 +38,7 @@ class DebugDataInitializer:
             "shop_points": 0,
             "sellers": 0,
             "categories": 0,
-            "inventory_entries": 0
+            "offers_entries": 0
         }
         
         try:
@@ -290,18 +295,18 @@ class DebugDataInitializer:
         # Create shop points for each seller
         shop_points_data = [
             # Пятёрочка
-            {"seller_id": sellers[0]["id"], "latitude": 55.7558, "longitude": 37.6176},
-            {"seller_id": sellers[0]["id"], "latitude": 55.7658, "longitude": 37.6276},
-            {"seller_id": sellers[0]["id"], "latitude": 55.7458, "longitude": 37.6076},
+            {"seller_id": sellers[0]["id"], "location": "POINT(37.6176 55.7558)"},
+            {"seller_id": sellers[0]["id"], "location": "POINT(37.6276 55.7658)"},
+            {"seller_id": sellers[0]["id"], "location": "POINT(37.6076 55.7458)"},
             
             # Магнит
-            {"seller_id": sellers[1]["id"], "latitude": 55.7558, "longitude": 37.6176},
-            {"seller_id": sellers[1]["id"], "latitude": 55.7658, "longitude": 37.6276},
+            {"seller_id": sellers[1]["id"], "location": "POINT(37.6176 55.7558)"},
+            {"seller_id": sellers[1]["id"], "location": "POINT(37.6276 55.7658)"},
             
             # Лента
-            {"seller_id": sellers[2]["id"], "latitude": 55.7558, "longitude": 37.6176},
-            {"seller_id": sellers[2]["id"], "latitude": 55.7658, "longitude": 37.6276},
-            {"seller_id": sellers[2]["id"], "latitude": 55.7458, "longitude": 37.6076},
+            {"seller_id": sellers[2]["id"], "location": "POINT(37.6176 55.7558)"},
+            {"seller_id": sellers[2]["id"], "location": "POINT(37.6276 55.7658)"},
+            {"seller_id": sellers[2]["id"], "location": "POINT(37.6076 55.7458)"},
         ]
         
         created_shop_points = []
@@ -493,45 +498,45 @@ class DebugDataInitializer:
         
         return created_products
     
-    async def get_or_create_inventory_entries(self, products: List[Dict[str, Any]], shop_points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Get existing inventory entries or create test inventory entries"""
+    async def get_or_create_offers_entries(self, products: List[Dict[str, Any]], shop_points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Get existing offers entries or create test offers entries"""
         if not products or not shop_points:
-            print("❌ Not enough products or shop points to create inventory entries")
+            print("❌ Not enough products or shop points to create offers entries")
             return []
         
-        # First, try to get existing inventory entries
+        # First, try to get existing offers entries
         try:
-            response = await self.client.get(f"{self.base_url}/inventory/")
+            response = await self.client.get(f"{self.base_url}/offers/")
             if response.is_success:
                 try:
                     existing_entries = response.json()
-                    print(f"📦 Found {len(existing_entries)} existing inventory entries")
+                    print(f"📦 Found {len(existing_entries)} existing offers entries")
                     
                     # Check if we have entries for all products
                     product_ids = {prod['id'] for prod in products}
                     existing_product_ids = {entry['product_id'] for entry in existing_entries}
                     
                     if product_ids.issubset(existing_product_ids):
-                        print("✅ All products have inventory entries")
-                        self.created_data["inventory_entries"] = existing_entries
+                        print("✅ All products have offers entries")
+                        self.created_data["offers_entries"] = existing_entries
                         return existing_entries
                     else:
-                        print("⚠️ Some products missing inventory entries, will create missing ones")
+                        print("⚠️ Some products missing offers entries, will create missing ones")
                 except Exception as json_error:
-                    print(f"⚠️ Failed to parse inventory entries JSON: {json_error}")
+                    print(f"⚠️ Failed to parse offers entries JSON: {json_error}")
                     print(f"Response text: {response.text}")
             else:
-                print(f"⚠️ Failed to fetch inventory entries: {response.status_code} - {response.text}")
+                print(f"⚠️ Failed to fetch offers entries: {response.status_code} - {response.text}")
         except Exception as e:
-            print(f"⚠️ Could not fetch existing inventory entries: {e}")
+            print(f"⚠️ Could not fetch existing offers entries: {e}")
         
-        # Create inventory entries
+        # Create offers entries
         from datetime import datetime, timedelta
         import random
         
-        inventory_entries_data = []
+        offers_entries_data = []
         
-        # Create inventory entries for each product in different shop points
+        # Create offers entries for each product in different shop points
         for product in products:
             # Select 2-3 random shop points for each product
             selected_shop_points = random.sample(shop_points, min(3, len(shop_points)))
@@ -548,24 +553,24 @@ class DebugDataInitializer:
                     "current_cost": round(random.uniform(30, 400), 2),
                     "count": random.randint(1, 100)
                 }
-                inventory_entries_data.append(entry_data)
+                offers_entries_data.append(entry_data)
         
         created_entries = []
-        for entry_data in inventory_entries_data:
+        for entry_data in offers_entries_data:
             try:
                 response = await self.client.post(
-                    f"{self.base_url}/inventory/",
+                    f"{self.base_url}/offers/",
                     json=entry_data
                 )
                 if response.is_success:
                     entry = response.json()
                     created_entries.append(entry)
-                    self.created_data["inventory_entries"].append(entry)
-                    print(f"✅ Created inventory entry for product {entry_data['product_id']} in shop {entry_data['shop_id']}")
+                    self.created_data["offers_entries"].append(entry)
+                    print(f"✅ Created offers entry for product {entry_data['product_id']} in shop {entry_data['shop_id']}")
                 else:
-                    print(f"❌ Failed to create inventory entry: {response.text}")
+                    print(f"❌ Failed to create offers entry: {response.text}")
             except Exception as e:
-                print(f"❌ Error creating inventory entry: {e}")
+                print(f"❌ Error creating offers entry: {e}")
         
         return created_entries
     
@@ -606,9 +611,9 @@ class DebugDataInitializer:
                 print("❌ Failed to get or create products. Stopping initialization.")
                 return None
             
-            # Get or create inventory entries
-            print("\n📦 Getting or creating inventory entries...")
-            inventory_entries = await self.get_or_create_inventory_entries(products, shop_points)
+            # Get or create offers entries
+            print("\n📦 Getting or creating offers entries...")
+            offers_entries = await self.get_or_create_offers_entries(products, shop_points)
             
             print(f"\n✅ Test data initialization completed!")
             print(f"📊 Summary:")
@@ -616,7 +621,7 @@ class DebugDataInitializer:
             print(f"   - Categories: {len(categories)}")
             print(f"   - Shop points: {len(shop_points)}")
             print(f"   - Products: {len(products)}")
-            print(f"   - Inventory entries: {len(inventory_entries)}")
+            print(f"   - Offers entries: {len(offers_entries)}")
             
             return self.created_data
             
@@ -648,6 +653,102 @@ async def main():
         initializer.print_created_data_summary()
     except Exception as e:
         print(f"❌ Initialization failed: {e}")
+
+
+async def initialize_categories_from_json_file(
+    session: AsyncSession, file_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """Initialize categories from JSON file"""
+    if file_path is None:
+        # Get the path to categories.md file (should be in the root of the project)
+        # From src/app/debug/init.py -> go up 4 levels to reach project root
+        current_file_dir = os.path.dirname(__file__)  # src/app/debug
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file_dir)))  # api/
+        file_path = os.path.join(project_root, "categories.md")
+    
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Categories file not found at {file_path}")
+    
+    # Read and parse JSON from file
+    with open(file_path, "r", encoding="utf-8") as f:
+        file_content = f.read()
+        json_data = json.loads(file_content)
+    
+    return await initialize_categories_from_json(session, json_data)
+
+
+async def initialize_categories_from_json(
+    session: AsyncSession, json_data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Initialize categories from JSON structure"""
+    from app.product_categories import schemas
+    
+    service = ProductCategoriesService()
+    created_count = 0
+    skipped_count = 0
+    
+    async def process_category(
+        category_data: Dict[str, Any], parent_id: Optional[int] = None
+    ) -> ProductCategory:
+        """Recursively process category and its subcategories"""
+        nonlocal created_count, skipped_count
+        
+        slug = category_data["slug"]
+        name = category_data["name"]
+        
+        # Check if category exists
+        existing_category = await service.get_category_by_slug(session, slug)
+        
+        if existing_category:
+            # Check if we're trying to set category as its own parent
+            if existing_category.id == parent_id:
+                # This happens when a subcategory has the same slug as parent
+                # Skip processing this subcategory to avoid constraint violation
+                skipped_count += 1
+                return existing_category
+            
+            # Update parent if needed (and it's safe to do so)
+            if existing_category.parent_category_id != parent_id:
+                update_schema = schemas.ProductCategoryUpdate(
+                    parent_category_id=parent_id
+                )
+                await service.update_category(session, existing_category.id, update_schema)
+                existing_category.parent_category_id = parent_id
+            
+            skipped_count += 1
+            current_category = existing_category
+        else:
+            # Create new category
+            category_schema = schemas.ProductCategoryCreate(
+                name=name,
+                slug=slug,
+                parent_category_id=parent_id
+            )
+            current_category = await service.create_category(session, category_schema)
+            created_count += 1
+        
+        # Process subcategories if they exist
+        if "subcategories" in category_data:
+            for subcategory_data in category_data["subcategories"]:
+                # Skip if subcategory slug matches current category slug (duplicate slug)
+                if subcategory_data["slug"] == current_category.slug:
+                    continue
+                await process_category(subcategory_data, current_category.id)
+        
+        return current_category
+    
+    # Process all root categories
+    if "categories" in json_data:
+        for category_data in json_data["categories"]:
+            await process_category(category_data, None)
+    
+    await session.commit()
+    
+    return {
+        "created": created_count,
+        "skipped": skipped_count,
+        "total": created_count + skipped_count
+    }
 
 
 if __name__ == "__main__":

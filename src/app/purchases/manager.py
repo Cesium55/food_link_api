@@ -1,0 +1,530 @@
+from typing import List, Dict
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException, status
+
+from datetime import datetime, timezone, timedelta
+from app.purchases import schemas
+from app.purchases.service import PurchasesService
+from app.purchases.models import PurchaseStatus, Purchase, PurchaseOffer
+from app.offers.service import OffersService
+from app.offers import schemas as offers_schemas
+from app.offers.models import Offer
+from utils.errors_handler import handle_alchemy_error
+from app.purchases.tasks import check_purchase_expiration
+from config import settings
+
+
+class PurchasesManager:
+    """Manager for purchases business logic and validation"""
+
+    def __init__(self):
+        self.service = PurchasesService()
+        self.offers_service = OffersService()
+
+    @handle_alchemy_error
+    async def create_purchase(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        purchase_data: schemas.PurchaseCreate
+    ) -> schemas.PurchaseWithOffers:
+        """
+        Create a new purchase with full validation.
+        All offers must be valid, otherwise an error is raised.
+        Uses SELECT FOR UPDATE to prevent race conditions.
+        """
+        
+        if not purchase_data.offers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Purchase must contain at least one offer"
+            )
+
+        # Check if user already has a pending purchase (with lock to prevent race conditions)
+        existing_pending = await self.service.get_pending_purchase_by_user(session, user_id, for_update=True)
+        if existing_pending:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="User already has a pending purchase. Only one pending purchase is allowed at a time."
+            )
+
+        # Get all offer IDs to lock them at once (prevents deadlocks)
+        all_offer_ids = [offer.offer_id for offer in purchase_data.offers]
+        locked_offers = await self.offers_service.get_offers_by_ids_for_update(
+            session, all_offer_ids
+        )
+        locked_offers_dict = {offer.id: offer for offer in locked_offers}
+        
+        purchase_offers_data = []
+        total_cost = 0.0
+        successful_offer_ids = []
+        
+        # Validate all offers before creating purchase
+        for offer_request in purchase_data.offers:
+            offer_id = offer_request.offer_id
+            requested_quantity = offer_request.quantity
+            
+            # Check if offer exists
+            offer = locked_offers_dict.get(offer_id)
+            if not offer:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Offer {offer_id} not found"
+                )
+            
+            # Check if offer is expired
+            if offer.expires_date:
+                now = datetime.now(timezone.utc)
+                if offer.expires_date < now:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Offer {offer_id} has expired"
+                    )
+            
+            # Check availability
+            available_count = (offer.count or 0) - (offer.reserved_count or 0)
+            if available_count < requested_quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Insufficient quantity for offer {offer_id}. Available: {available_count}, requested: {requested_quantity}"
+                )
+            
+            # All validations passed, add to purchase
+            cost_per_item = offer.current_cost or 0.0
+            total_cost += cost_per_item * requested_quantity
+            
+            purchase_offers_data.append({
+                "offer_id": offer_id,
+                "quantity": requested_quantity,
+                "cost_at_purchase": cost_per_item,
+            })
+            
+            successful_offer_ids.append(offer_id)
+        
+        # Update reserved_count for all offers
+        for offer_data in purchase_offers_data:
+            await self.offers_service.update_offer_reserved_count(
+                session, offer_data["offer_id"], offer_data["quantity"]
+            )
+        
+        # Create purchase
+        purchase = await self.service.create_purchase(session, user_id, total_cost)
+        
+        # Create purchase offers
+        purchase_offers = await self.service.create_purchase_offers(
+            session, purchase.id, purchase_offers_data
+        )
+        
+        # Create offer results (all offers were successful in this method)
+        offer_results_data = []
+        for offer_request in purchase_data.offers:
+            offer_results_data.append({
+                "offer_id": offer_request.offer_id,
+                "status": schemas.OfferProcessingStatus.SUCCESS.value,
+                "requested_quantity": offer_request.quantity,
+                "processed_quantity": offer_request.quantity,
+                "message": f"Successfully processed {offer_request.quantity} items for offer {offer_request.offer_id}"
+            })
+        
+        await self.service.create_purchase_offer_results(session, purchase.id, offer_results_data)
+        
+        # Commit transaction (releases locks)
+        await session.commit()
+        
+        # Schedule Celery task to check purchase expiration
+        try:
+            check_purchase_expiration.apply_async(
+                args=[purchase.id],
+                countdown=settings.purchase_expiration_seconds
+            )
+        except Exception as e:
+            # Log error but don't fail the purchase creation
+            print(f"Warning: Failed to schedule Celery task for purchase {purchase.id}: {e}")
+        
+        # Reload offers to get updated reserved_count values for response
+        updated_offers = await self.offers_service.get_offers_by_ids(session, successful_offer_ids)
+        offers_dict = {offer.id: offer for offer in updated_offers}
+        
+        # Load offer results
+        offer_results = await self.service.get_purchase_offer_results_by_purchase_id(session, purchase.id)
+        
+        # Convert purchase to schema
+        return self._purchase_to_schema_with_offers(purchase, purchase_offers, offers_dict, offer_results)
+
+    @handle_alchemy_error
+    async def create_purchase_with_partial_success(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        purchase_data: schemas.PurchaseCreate
+    ) -> schemas.PurchaseCreateResponse:
+        """
+        Create a new purchase with partial success support.
+        Processes each offer individually and collects results.
+        Uses SELECT FOR UPDATE to prevent race conditions.
+        """
+        
+        if not purchase_data.offers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Purchase must contain at least one offer"
+            )
+
+        # Check if user already has a pending purchase (with lock to prevent race conditions)
+        existing_pending = await self.service.get_pending_purchase_by_user(session, user_id, for_update=True)
+        if existing_pending:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="User already has a pending purchase. Only one pending purchase is allowed at a time."
+            )
+
+        # Process each offer individually
+        offer_results: List[schemas.OfferProcessingResult] = []
+        purchase_offers_data = []
+        total_cost = 0.0
+        successful_offer_ids = []
+        
+        # Get all offer IDs to lock them at once (prevents deadlocks)
+        all_offer_ids = [offer.offer_id for offer in purchase_data.offers]
+        locked_offers = await self.offers_service.get_offers_by_ids_for_update(
+            session, all_offer_ids
+        )
+        locked_offers_dict = {offer.id: offer for offer in locked_offers}
+        
+        # Process each offer from the request
+        for offer_request in purchase_data.offers:
+            offer_id = offer_request.offer_id
+            requested_quantity = offer_request.quantity
+            result = schemas.OfferProcessingResult(
+                offer_id=offer_id,
+                status=schemas.OfferProcessingStatus.SUCCESS,
+                requested_quantity=requested_quantity
+            )
+            
+            # Check if offer exists
+            offer = locked_offers_dict.get(offer_id)
+            if not offer:
+                result.status = schemas.OfferProcessingStatus.NOT_FOUND
+                result.message = f"Offer {offer_id} not found"
+                offer_results.append(result)
+                continue
+            
+            # Check if offer is expired
+            if offer.expires_date:
+                # Compare with timezone-aware datetime
+                now = datetime.now(timezone.utc)
+                if offer.expires_date < now:
+                    result.status = schemas.OfferProcessingStatus.EXPIRED
+                    result.message = f"Offer {offer_id} has expired"
+                    offer_results.append(result)
+                    continue
+            
+            # Check availability
+            available_count = (offer.count or 0) - (offer.reserved_count or 0)
+            if available_count <= 0:
+                result.status = schemas.OfferProcessingStatus.INSUFFICIENT_QUANTITY
+                result.available_quantity = 0
+                result.message = f"Offer {offer_id} is not available"
+                offer_results.append(result)
+                continue
+            
+            # Determine how much we can actually process
+            processed_quantity = min(requested_quantity, available_count)
+            result.processed_quantity = processed_quantity
+            
+            if processed_quantity < requested_quantity:
+                # Partial success - we take what's available
+                result.status = schemas.OfferProcessingStatus.INSUFFICIENT_QUANTITY
+                result.available_quantity = available_count
+                result.message = f"Only {processed_quantity} items available for offer {offer_id}, requested {requested_quantity}"
+            else:
+                # Full success
+                result.status = schemas.OfferProcessingStatus.SUCCESS
+                result.message = f"Successfully processed {processed_quantity} items for offer {offer_id}"
+            
+            # Add to purchase if we can process at least something
+            if processed_quantity > 0:
+                cost_per_item = offer.current_cost or 0.0
+                total_cost += cost_per_item * processed_quantity
+                
+                purchase_offers_data.append({
+                    "offer_id": offer_id,
+                    "quantity": processed_quantity,
+                    "cost_at_purchase": cost_per_item,
+                })
+                
+                successful_offer_ids.append(offer_id)
+            
+            offer_results.append(result)
+        
+        # Check if we have at least one successful offer
+        if not purchase_offers_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No offers could be processed. All offers failed validation."
+            )
+        
+        # Update reserved_count for successful offers
+        for offer_data in purchase_offers_data:
+            await self.offers_service.update_offer_reserved_count(
+                session, offer_data["offer_id"], offer_data["quantity"]
+            )
+        
+        # Create purchase
+        purchase = await self.service.create_purchase(session, user_id, total_cost)
+        
+        # Create purchase offers
+        purchase_offers = await self.service.create_purchase_offers(
+            session, purchase.id, purchase_offers_data
+        )
+        
+        # Save offer results to database
+        offer_results_data = []
+        for result in offer_results:
+            offer_results_data.append({
+                "offer_id": result.offer_id,
+                "status": result.status.value,
+                "requested_quantity": result.requested_quantity,
+                "processed_quantity": result.processed_quantity,
+                "available_quantity": result.available_quantity,
+                "message": result.message
+            })
+        
+        await self.service.create_purchase_offer_results(session, purchase.id, offer_results_data)
+        
+        # Commit transaction (releases locks)
+        await session.commit()
+        
+        # Schedule Celery task to check purchase expiration
+        try:
+            check_purchase_expiration.apply_async(
+                args=[purchase.id],
+                countdown=settings.purchase_expiration_seconds
+            )
+        except Exception as e:
+            # Log error but don't fail the purchase creation
+            print(f"Warning: Failed to schedule Celery task for purchase {purchase.id}: {e}")
+        
+        # Reload offers to get updated reserved_count values for response
+        updated_offers = await self.offers_service.get_offers_by_ids(session, successful_offer_ids)
+        offers_dict = {offer.id: offer for offer in updated_offers}
+        
+        # Load offer results from database
+        saved_offer_results = await self.service.get_purchase_offer_results_by_purchase_id(session, purchase.id)
+        
+        # Convert purchase to schema
+        purchase_schema = self._purchase_to_schema_with_offers(purchase, purchase_offers, offers_dict, saved_offer_results)
+        
+        # Count successful and failed offers
+        # Success includes both full success and partial success (when processed_quantity > 0)
+        total_processed = sum(1 for r in offer_results if r.processed_quantity and r.processed_quantity > 0)
+        total_failed = len(offer_results) - total_processed
+        
+        return schemas.PurchaseCreateResponse(
+            purchase=purchase_schema,
+            offer_results=purchase_schema.offer_results,
+            total_processed=total_processed,
+            total_failed=total_failed
+        )
+
+    async def get_purchase_by_id(
+        self, session: AsyncSession, purchase_id: int
+    ) -> schemas.PurchaseWithOffers:
+        """Get purchase by ID"""
+        purchase = await self.service.get_purchase_by_id(session, purchase_id)
+        if not purchase:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase with id {purchase_id} not found"
+            )
+        
+        # Get purchase offers
+        purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase_id)
+        
+        # Get all offer IDs from purchase_offers
+        offer_ids = [po.offer_id for po in purchase_offers]
+        
+        # Load offers
+        offers = await self.offers_service.get_offers_by_ids(session, offer_ids)
+        offers_dict = {offer.id: offer for offer in offers}
+        
+        # Load offer results
+        offer_results = await self.service.get_purchase_offer_results_by_purchase_id(session, purchase_id)
+        
+        return self._purchase_to_schema_with_offers(purchase, purchase_offers, offers_dict, offer_results)
+
+    async def get_pending_purchase_by_user(
+        self, session: AsyncSession, user_id: int
+    ) -> schemas.PurchaseWithOffers:
+        """Get pending purchase by user ID"""
+        purchase = await self.service.get_pending_purchase_by_user(session, user_id)
+        if not purchase:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No pending purchase found for this user"
+            )
+        
+        # Get purchase offers
+        purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase.id)
+        
+        # Get all offer IDs from purchase_offers
+        offer_ids = [po.offer_id for po in purchase_offers]
+        
+        # Load offers
+        offers = await self.offers_service.get_offers_by_ids(session, offer_ids)
+        offers_dict = {offer.id: offer for offer in offers}
+        
+        # Load offer results
+        offer_results = await self.service.get_purchase_offer_results_by_purchase_id(session, purchase.id)
+        
+        return self._purchase_to_schema_with_offers(purchase, purchase_offers, offers_dict, offer_results)
+
+    async def get_purchases_by_user(
+        self, session: AsyncSession, user_id: int
+    ) -> List[schemas.Purchase]:
+        """Get purchases by user ID"""
+        purchases = await self.service.get_purchases_by_user(session, user_id)
+        return [schemas.Purchase.model_validate(purchase) for purchase in purchases]
+
+    @handle_alchemy_error
+    async def update_purchase_status(
+        self,
+        session: AsyncSession,
+        purchase_id: int,
+        status_data: schemas.PurchaseUpdate
+    ) -> schemas.Purchase:
+        """Update purchase status"""
+        purchase = await self.service.get_purchase_by_id(session, purchase_id)
+        if not purchase:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase with id {purchase_id} not found"
+            )
+        
+        if status_data.status:
+            # Validate status
+            valid_statuses = [status.value for status in PurchaseStatus]
+            if status_data.status not in valid_statuses:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid status. Valid statuses: {', '.join(valid_statuses)}"
+                )
+            
+            # If cancelling, release reserved items (if purchase was pending or confirmed)
+            if status_data.status == PurchaseStatus.CANCELLED.value and purchase.status in [PurchaseStatus.PENDING.value, PurchaseStatus.CONFIRMED.value]:
+                # Get purchase offers to release reservations
+                purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase_id)
+                
+                # Get offer IDs that need to be unlocked
+                offer_ids_to_release = [po.offer_id for po in purchase_offers]
+                
+                # Lock offers before releasing reservations to ensure consistency
+                if offer_ids_to_release:
+                    await self.offers_service.get_offers_by_ids_for_update(session, offer_ids_to_release)
+                
+                # Release reservations
+                for purchase_offer in purchase_offers:
+                    await self.offers_service.update_offer_reserved_count(
+                        session, purchase_offer.offer_id, -purchase_offer.quantity
+                    )
+            
+            updated_purchase = await self.service.update_purchase_status(
+                session, purchase_id, status_data.status
+            )
+            await session.commit()
+            return schemas.Purchase.model_validate(updated_purchase)
+        
+        return schemas.Purchase.model_validate(purchase)
+
+    @handle_alchemy_error
+    async def delete_purchase(
+        self, session: AsyncSession, purchase_id: int
+    ) -> None:
+        """Delete purchase and release reservations"""
+        purchase = await self.service.get_purchase_by_id(session, purchase_id)
+        if not purchase:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase with id {purchase_id} not found"
+            )
+        
+        # Release reserved items if purchase was pending or confirmed
+        if purchase.status in [PurchaseStatus.PENDING.value, PurchaseStatus.CONFIRMED.value]:
+            purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase_id)
+            
+            # Get offer IDs that need to be unlocked
+            offer_ids_to_release = [po.offer_id for po in purchase_offers]
+            
+            # Lock offers before releasing reservations to ensure consistency
+            if offer_ids_to_release:
+                await self.offers_service.get_offers_by_ids_for_update(session, offer_ids_to_release)
+            
+            # Release reservations
+            for purchase_offer in purchase_offers:
+                await self.offers_service.update_offer_reserved_count(
+                    session, purchase_offer.offer_id, -purchase_offer.quantity
+                )
+        
+        await self.service.delete_purchase(session, purchase_id)
+        await session.commit()
+
+    def _purchase_to_schema_with_offers(
+        self, 
+        purchase: Purchase, 
+        purchase_offers: List[PurchaseOffer], 
+        offers_dict: Dict[int, Offer],
+        offer_results: List = None
+    ) -> schemas.PurchaseWithOffers:
+        """Convert Purchase model to PurchaseWithOffers schema"""
+        from app.purchases.models import PurchaseOfferResult
+        
+        purchase_schema = schemas.Purchase.model_validate(purchase)
+        
+        purchase_offers_schemas = []
+        for po in purchase_offers:
+            offer = offers_dict.get(po.offer_id)
+            offer_schema = offers_schemas.Offer.model_validate(offer) if offer else None
+            purchase_offers_schemas.append(schemas.PurchaseOffer(
+                offer_id=po.offer_id,
+                quantity=po.quantity,
+                cost_at_purchase=po.cost_at_purchase,
+                offer=offer_schema
+            ))
+        
+        # Convert offer_results to schemas
+        offer_results_schemas = []
+        if offer_results:
+            for result in offer_results:
+                if isinstance(result, PurchaseOfferResult):
+                    offer_results_schemas.append(schemas.OfferProcessingResult(
+                        offer_id=result.offer_id,
+                        status=schemas.OfferProcessingStatus(result.status),
+                        requested_quantity=result.requested_quantity,
+                        processed_quantity=result.processed_quantity,
+                        available_quantity=result.available_quantity,
+                        message=result.message
+                    ))
+                elif isinstance(result, schemas.OfferProcessingResult):
+                    offer_results_schemas.append(result)
+        
+        # Calculate TTL: time remaining until expiration
+        # For pending purchases, TTL is based on expiration time
+        # For other statuses, TTL is 0
+        ttl = 0
+        if purchase.status == PurchaseStatus.PENDING.value:
+            now = datetime.now(timezone.utc)
+            # Ensure created_at is timezone-aware (should be from DB, but check to be safe)
+            created_at = purchase.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            expiration_time = created_at + timedelta(seconds=settings.purchase_expiration_seconds)
+            remaining_seconds = int((expiration_time - now).total_seconds())
+            ttl = max(0, remaining_seconds)
+        
+        return schemas.PurchaseWithOffers(
+            **purchase_schema.model_dump(),
+            purchase_offers=purchase_offers_schemas,
+            offer_results=offer_results_schemas,
+            ttl=ttl
+        )
+

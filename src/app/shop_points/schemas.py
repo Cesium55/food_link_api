@@ -3,7 +3,7 @@ from typing import Optional, List, TYPE_CHECKING
 from pydantic import BaseModel, Field, ConfigDict
 
 if TYPE_CHECKING:
-    from app.sellers.schemas import Seller
+    from app.sellers.schemas import PublicSeller
 
 
 class ShopPointImage(BaseModel):
@@ -17,8 +17,18 @@ class ShopPointImage(BaseModel):
 
 class ShopPointBase(BaseModel):
     """Base schema for shop point"""
-    latitude: Optional[float] = Field(None, ge=-90, le=90, description="Latitude")
-    longitude: Optional[float] = Field(None, ge=-180, le=180, description="Longitude")
+    # Location coordinates
+    latitude: Optional[float] = Field(None, description="Latitude")
+    longitude: Optional[float] = Field(None, description="Longitude")
+    
+    # Address fields for Yandex Maps
+    address_raw: Optional[str] = Field(None, description="Raw address")
+    address_formated: Optional[str] = Field(None, description="Formatted address")
+    region: Optional[str] = Field(None, max_length=255, description="Region")
+    city: Optional[str] = Field(None, max_length=255, description="City")
+    street: Optional[str] = Field(None, max_length=255, description="Street")
+    house: Optional[str] = Field(None, max_length=50, description="House number")
+    geo_id: Optional[str] = Field(None, max_length=255, description="Yandex Geocoder GEO ID")
 
 
 class ShopPointCreate(ShopPointBase):
@@ -26,10 +36,25 @@ class ShopPointCreate(ShopPointBase):
     seller_id: int = Field(..., description="Seller ID")
 
 
+class ShopPointCreateByAddress(BaseModel):
+    """Schema for creating shop point by raw address"""
+    raw_address: str = Field(..., min_length=1, description="Raw address to geocode")
+
+
 class ShopPointUpdate(BaseModel):
     """Schema for updating shop point"""
-    latitude: Optional[float] = Field(None, ge=-90, le=90, description="Latitude")
-    longitude: Optional[float] = Field(None, ge=-180, le=180, description="Longitude")
+    # Location coordinates
+    latitude: Optional[float] = Field(None, description="Latitude")
+    longitude: Optional[float] = Field(None, description="Longitude")
+    
+    # Address fields for Yandex Maps
+    address_raw: Optional[str] = Field(None, description="Raw address")
+    address_formated: Optional[str] = Field(None, description="Formatted address")
+    region: Optional[str] = Field(None, max_length=255, description="Region")
+    city: Optional[str] = Field(None, max_length=255, description="City")
+    street: Optional[str] = Field(None, max_length=255, description="Street")
+    house: Optional[str] = Field(None, max_length=50, description="House number")
+    geo_id: Optional[str] = Field(None, max_length=255, description="Yandex Geocoder GEO ID")
 
 
 class ShopPoint(ShopPointBase):
@@ -43,7 +68,7 @@ class ShopPoint(ShopPointBase):
 
 class ShopPointWithSeller(ShopPoint):
     """Shop point schema with seller information"""
-    seller: "Seller" = Field(..., description="Seller information")
+    seller: "PublicSeller" = Field(..., description="Seller information")
 
 
 class ShopPointSummary(BaseModel):
@@ -56,7 +81,7 @@ class ShopPointSummary(BaseModel):
 # Update forward references
 def _rebuild_models():
     try:
-        from app.sellers.schemas import Seller
+        from app.sellers.schemas import PublicSeller
         ShopPointWithSeller.model_rebuild()
     except ImportError:
         pass

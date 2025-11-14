@@ -26,7 +26,7 @@ from typing import AsyncGenerator, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, Session
-from src.config import settings
+from config import settings
 
 # URL для синхронной базы данных
 DATABASE_URL = os.getenv(
@@ -45,7 +45,16 @@ sync_engine = create_engine(DATABASE_URL)
 SyncSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
 
 # Асинхронный движок и фабрика сессий
-async_engine = create_async_engine(ASYNC_DATABASE_URL)
+# pool_pre_ping=True проверяет соединения перед использованием
+# pool_recycle=3600 пересоздает соединения каждый час
+# max_overflow=10 позволяет создавать дополнительные соединения при нагрузке
+async_engine = create_async_engine(
+    ASYNC_DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    max_overflow=10,
+    echo=False
+)
 AsyncSessionLocal = async_sessionmaker(
     async_engine, 
     class_=AsyncSession, 

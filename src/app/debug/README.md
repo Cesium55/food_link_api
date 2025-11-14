@@ -1,6 +1,6 @@
 # Debug Module
 
-This module provides functionality for initializing the application with test data for all domains except inventory.
+This module provides functionality for initializing the application with test data for all domains except offers.
 
 ## Features
 

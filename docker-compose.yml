@@ -70,6 +70,31 @@ services:
       - food_link_network
     restart: unless-stopped
 
+    
+  celery_worker:
+    build: .
+    container_name: food_link_celery_worker
+    command: ["uv", "run", "python", "run_celery.py"]
+    environment:
+      DB_SYNC_DRIVER: ${DB_SYNC_DRIVER}
+      DB_ASYNC_DRIVER: ${DB_ASYNC_DRIVER}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: food_link_postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      PURCHASE_EXPIRATION_SECONDS: ${PURCHASE_EXPIRATION_SECONDS:-30}
+    volumes:
+      - .:/app
+    networks:
+      - food_link_network
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     
     # JWT настройки для аутентификации
     jwt_secret_key: str = "your-jwt-secret-key-here"
-    jwt_access_token_expire_minutes: int = 1
+    jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 30
     jwt_algorithm: str = "HS256"
     
@@ -39,14 +39,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
-    # Настройки Redis
-    redis_url: Optional[str] = None
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_db: int = 0
-
-
-
+    # Настройки Celery
+    celery_broker_url: Optional[str] = None
+    celery_result_backend: Optional[str] = None
+    
+    # Настройки истечения покупок
+    purchase_expiration_seconds: int = 30  # Время истечения покупки в секундах
+    
     yandex_map_api_key: str = "UNDEFINED_KEY"
     
     class Config:

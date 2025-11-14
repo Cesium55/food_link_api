@@ -1,5 +1,5 @@
 from typing import List, Optional, TYPE_CHECKING
-from sqlalchemy import Column, Integer, String, CheckConstraint, ForeignKey, Numeric, Boolean
+from sqlalchemy import Column, Integer, String, CheckConstraint, ForeignKey, Numeric, Boolean, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models import Base, ImageMixin
@@ -20,6 +20,7 @@ class Seller(Base):
 
     full_name: Mapped[str] = mapped_column(String(1000), nullable=False)
     short_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     inn: Mapped[str] = mapped_column(String(12), nullable=False)
     is_IP: Mapped[bool] = mapped_column(Boolean, nullable=False)
     ogrn: Mapped[str] = mapped_column(String(15), nullable=False)

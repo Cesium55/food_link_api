@@ -109,7 +109,7 @@ class AuthManager:
         }
     
     @handle_alchemy_error
-    async def get_current_user_by_token(self, session: AsyncSession, token: str) -> dict:
+    async def get_current_user_by_token(self, session: AsyncSession, token: str) -> User:
         """Get current user by token"""
         # Verify token and get user_id
         payload = self.jwt_utils.verify_access_token(token)

@@ -1,54 +1,26 @@
 <!DOCTYPE html>
 <html style="margin: 0; padding: 0; height: 100%;">
+
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        html, body {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-        }
-        #app {
-            width: 100%;
-            height: 100%;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/css/map.css">
     <script src="https://api-maps.yandex.ru/v3/?apikey={{ yandex_map_api_key }}&lang=ru_RU"></script>
 </head>
+
 <body>
+
     <div id="app"></div>
+
+    <!-- Данные маркеров из бэкенда через Jinja2 -->
     <script>
-        window.addEventListener('load', function() {
-            async function initMap() {
-                try {
-                    await ymaps3.ready;
-
-                    const { YMap, YMapDefaultSchemeLayer } = ymaps3;
-
-                    const map = new YMap(
-                        document.getElementById('app'),
-                        {
-                            location: {
-                                center: [37.588144, 55.733842],
-                                zoom: 10
-                            }
-                        }
-                    );
-
-                    map.addChild(new YMapDefaultSchemeLayer());
-                } catch (error) {
-                    console.error('Ошибка инициализации карты:', error);
-                }
-            }
-
-            initMap();
-        });
+        window.MAP_MARKERS_DATA = {{ markers | tojson | safe }};
     </script>
+
+    <!-- Основная логика карты -->
+    <script data-plugins="transform-modules-umd" data-presets="typescript" type="text/babel"
+        src="/static/js/geolocation.js"></script>
+    <script src="/static/js/map.js"></script>
 </body>
+
 </html>

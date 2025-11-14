@@ -44,6 +44,7 @@ class SellersService:
             .values(
                 full_name=schema.full_name,
                 short_name=schema.short_name,
+                description=schema.description,
                 inn=schema.inn,
                 is_IP=schema.is_IP,
                 ogrn=schema.ogrn,
@@ -122,6 +123,8 @@ class SellersService:
             update_data['full_name'] = schema.full_name
         if schema.short_name is not None:
             update_data['short_name'] = schema.short_name
+        if schema.description is not None:
+            update_data['description'] = schema.description
         if schema.inn is not None:
             update_data['inn'] = schema.inn
         if schema.is_IP is not None:

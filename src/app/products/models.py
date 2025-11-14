@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from app.sellers.models import Seller
     from app.product_categories.models import ProductCategory
     from app.shop_points.models import ShopPoint
+    from app.offers.models import Offer
 
 
 class Product(Base):
@@ -37,13 +38,16 @@ class Product(Base):
     images: Mapped[List["ProductImage"]] = relationship(
         "ProductImage", back_populates="product", order_by="ProductImage.order"
     )
-    product_entries: Mapped[List["ProductEntry"]] = relationship(
-        "ProductEntry", back_populates="product"
+    offers: Mapped[List["Offer"]] = relationship(
+        "Offer", back_populates="product"
     )
     categories: Mapped[List["ProductCategory"]] = relationship(
         "ProductCategory",
         secondary="product_category_relations",
         back_populates="products",
+    )
+    attributes: Mapped[List["ProductAttribute"]] = relationship(
+        "ProductAttribute", back_populates="product", cascade="all, delete-orphan"
     )
 
 
@@ -59,37 +63,30 @@ class ProductImage(ImageMixin, Base):
     product: Mapped["Product"] = relationship("Product", back_populates="images")
 
 
-class ProductEntry(Base):
-    """Product entries model"""
+class ProductAttribute(Base):
+    """Product attributes model"""
 
-    __tablename__ = "product_entries"
+    __tablename__ = "product_attributes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     product_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("products.id"), nullable=False, index=True
     )
-    shop_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("shop_points.id"), nullable=False, index=True
-    )
-    expires_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=False)
-    original_cost: Mapped[Optional[float]] = mapped_column(Double, nullable=False)
-    current_cost: Mapped[Optional[float]] = mapped_column(Double, nullable=False)
-    count: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(String(1000), nullable=False)
 
     __table_args__ = (
         CheckConstraint(
-            "original_cost >= 0", name="ck_product_entry_original_cost_positive"
+            "length(slug) >= 1", name="ck_product_attribute_slug_min_length"
         ),
         CheckConstraint(
-            "current_cost >= 0", name="ck_product_entry_current_cost_positive"
+            "length(name) >= 1", name="ck_product_attribute_name_min_length"
         ),
-        CheckConstraint("count >= 0", name="ck_product_entry_count_positive"),
-        UniqueConstraint("product_id", "shop_id", name="uq_product_entry_product_shop"),
+        CheckConstraint(
+            "length(value) >= 1", name="ck_product_attribute_value_min_length"
+        ),
+        UniqueConstraint("product_id", "slug", name="uq_product_attribute_product_slug"),
     )
 
-    product: Mapped["Product"] = relationship(
-        "Product", back_populates="product_entries"
-    )
-    shop_point: Mapped["ShopPoint"] = relationship(
-        "ShopPoint", back_populates="product_entries"
-    )
+    product: Mapped["Product"] = relationship("Product", back_populates="attributes")

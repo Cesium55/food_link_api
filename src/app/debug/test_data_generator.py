@@ -171,8 +171,7 @@ class TestDataGenerator:
                 
                 shop_points.append({
                     "network_id": network_idx + 1,  # Will be updated with actual IDs
-                    "latitude": round(lat, 6),
-                    "longitude": round(lng, 6)
+                    "location": f"POINT({round(lng, 6)} {round(lat, 6)})"
                 })
         
         return shop_points

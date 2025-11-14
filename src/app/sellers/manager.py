@@ -10,7 +10,7 @@ from app.products.service import ProductsService
 from app.products import schemas as products_schemas
 from app.auth.models import User
 from app.auth.password_utils import PasswordUtils
-from src.utils.errors_handler import handle_alchemy_error
+from utils.errors_handler import handle_alchemy_error
 from app.sellers.models import Seller
 from app.auth.service import AuthService
 
@@ -53,14 +53,14 @@ class SellersManager:
 
         return seller
 
-    async def get_sellers(self, session: AsyncSession) -> List[schemas.Seller]:
+    async def get_sellers(self, session: AsyncSession) -> List[schemas.PublicSeller]:
         """Get list of sellers"""
         sellers = await self.service.get_sellers(session)
-        return [schemas.Seller.model_validate(seller) for seller in sellers]
+        return [schemas.PublicSeller.model_validate(seller) for seller in sellers]
 
     async def get_seller_by_id(
         self, session: AsyncSession, seller_id: int
-    ) -> schemas.Seller:
+    ) -> schemas.PublicSeller:
         """Get seller by ID"""
         seller = await self.service.get_seller_by_id(session, seller_id)
         if not seller:
@@ -69,7 +69,7 @@ class SellersManager:
                 detail=f"Seller with id {seller_id} not found",
             )
 
-        return schemas.Seller.model_validate(seller)
+        return schemas.PublicSeller.model_validate(seller)
 
     async def get_seller_by_email(
         self, session: AsyncSession, email: str
@@ -94,7 +94,7 @@ class SellersManager:
 
     async def get_seller_with_shop_points(
         self, session: AsyncSession, seller_id: int
-    ) -> schemas.SellerWithShopPoints:
+    ) -> schemas.PublicSellerWithShopPoints:
         """Get seller with shop points"""
         seller = await self.service.get_seller_with_shop_points(session, seller_id)
         if not seller:
@@ -107,18 +107,18 @@ class SellersManager:
             session, seller_id
         )
 
-        seller_schema = schemas.Seller.model_validate(seller)
+        seller_schema = schemas.PublicSeller.model_validate(seller)
         shop_points_as_schemas = [
             shop_points_schemas.ShopPoint.model_validate(sp) for sp in shop_points
         ]
 
-        return schemas.SellerWithShopPoints(
+        return schemas.PublicSellerWithShopPoints(
             **seller_schema.model_dump(), shop_points=shop_points_as_schemas
         )
 
     async def get_seller_with_details(
         self, session: AsyncSession, seller_id: int
-    ) -> schemas.SellerWithDetails:
+    ) -> schemas.PublicSellerWithDetails:
         """Get seller with full details"""
         seller = await self.service.get_seller_with_details(session, seller_id)
         if not seller:
@@ -134,7 +134,7 @@ class SellersManager:
             session, seller_id
         )
 
-        seller_schema = schemas.Seller.model_validate(seller)
+        seller_schema = schemas.PublicSeller.model_validate(seller)
         shop_points_as_schemas = [
             shop_points_schemas.ShopPoint.model_validate(sp) for sp in shop_points
         ]
@@ -142,7 +142,7 @@ class SellersManager:
             products_schemas.Product.model_validate(p) for p in products
         ]
 
-        return schemas.SellerWithDetails(
+        return schemas.PublicSellerWithDetails(
             **seller_schema.model_dump(),
             shop_points=shop_points_as_schemas,
             products=products_schemas_list,
@@ -172,7 +172,7 @@ class SellersManager:
 
     async def get_sellers_by_ids(
         self, session: AsyncSession, seller_ids: List[int]
-    ) -> List[schemas.Seller]:
+    ) -> List[schemas.PublicSeller]:
         """Get sellers by list of IDs"""
         sellers = await self.service.get_sellers_by_ids(session, seller_ids)
-        return [schemas.Seller.model_validate(seller) for seller in sellers]
+        return [schemas.PublicSeller.model_validate(seller) for seller in sellers]

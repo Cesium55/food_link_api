@@ -1,10 +1,13 @@
 from models import Base
-from typing import Optional
+from typing import Optional, List, TYPE_CHECKING
 from sqlalchemy import Column, Integer, String, Boolean, Text, TIMESTAMP
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
 import uuid
+
+if TYPE_CHECKING:
+    from app.purchases.models import Purchase
 
 
 class User(Base):
@@ -17,6 +20,10 @@ class User(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, unique=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_seller: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    purchases: Mapped[List["Purchase"]] = relationship(
+        "Purchase", back_populates="user"
+    )
 
 
 class RefreshToken(Base):

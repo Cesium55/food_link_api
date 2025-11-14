@@ -1,4 +1,6 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_async_session_generator
 from app.sellers.models import Seller
@@ -7,21 +9,37 @@ from config import settings
 from app.sellers.routes import router as sellers_router
 from app.shop_points.routes import router as shop_points_router
 from app.products.routes import router as products_router
-from app.inventory.routes import router as inventory_router
+from app.offers.routes import router as offers_router
 from app.product_categories.routes import router as product_categories_router
 from app.auth.routes import router as auth_router
 from app.debug.routes import router as debug_router
+from app.maps.routes import router as maps_router
+from app.purchases.routes import router as purchases_router
 
 from middleware.insert_session_middleware import InsertSessionMiddleware
 from middleware.timing_middleware import TimingMiddleware
 from middleware.response_wrapper_middleware import ResponseWrapperMiddleware
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events"""
+    # Startup
+    yield
+    
+    # Shutdown
+
+
 app = FastAPI(
     title=settings.app_name,
     description=settings.app_name,
     version=settings.app_version,
-    debug=settings.debug
+    debug=settings.debug,
+    lifespan=lifespan
 )
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="src/static"), name="static")
 
 app.add_middleware(TimingMiddleware)
 app.add_middleware(InsertSessionMiddleware)
@@ -31,9 +49,11 @@ app.include_router(auth_router)
 app.include_router(sellers_router)
 app.include_router(shop_points_router)
 app.include_router(products_router)
-# app.include_router(inventory_router)
+app.include_router(offers_router)
 app.include_router(product_categories_router)
+app.include_router(purchases_router)
 app.include_router(debug_router)
+app.include_router(maps_router)
 
 
 @app.get("/")

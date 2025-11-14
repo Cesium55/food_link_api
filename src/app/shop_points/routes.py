@@ -1,7 +1,9 @@
 from typing import List
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from app.shop_points import schemas
 from app.shop_points.manager import ShopPointsManager
+from utils.auth_dependencies import get_current_user
+from app.auth.models import User
 
 router = APIRouter(prefix="/shop-points", tags=["shop-points"])
 
@@ -9,7 +11,7 @@ router = APIRouter(prefix="/shop-points", tags=["shop-points"])
 shop_points_manager = ShopPointsManager()
 
 
-@router.post("/", response_model=schemas.ShopPoint, status_code=201)
+@router.post("", response_model=schemas.ShopPoint, status_code=201)
 async def create_shop_point(
     request: Request, shop_point_data: schemas.ShopPointCreate
 ) -> schemas.ShopPoint:
@@ -19,7 +21,7 @@ async def create_shop_point(
     return await shop_points_manager.create_shop_point(request.state.session, shop_point_data)
 
 
-@router.get("/", response_model=List[schemas.ShopPoint])
+@router.get("", response_model=List[schemas.ShopPoint])
 async def get_shop_points(request: Request) -> List[schemas.ShopPoint]:
     """
     Get list of shop points
@@ -87,3 +89,19 @@ async def get_shop_points_by_ids(
     Get shop points by list of IDs
     """
     return await shop_points_manager.get_shop_points_by_ids(request.state.session, shop_point_ids)
+
+
+@router.post("/by-address", response_model=schemas.ShopPoint, status_code=201)
+async def create_shop_point_by_address(
+    request: Request,
+    shop_point_data: schemas.ShopPointCreateByAddress,
+    current_user: User = Depends(get_current_user)
+) -> schemas.ShopPoint:
+    """
+    Create a new shop point by raw address (will be geocoded automatically)
+    Address must be in Russia
+    Requires authentication and user must be a seller
+    """
+    return await shop_points_manager.create_shop_point_by_address(
+        request.state.session, current_user.id, shop_point_data
+    )

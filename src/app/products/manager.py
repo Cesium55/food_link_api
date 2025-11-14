@@ -8,6 +8,7 @@ from app.sellers import schemas as sellers_schemas
 from app.sellers.service import SellersService
 from app.product_categories import schemas as categories_schemas
 from app.product_categories.service import ProductCategoriesService
+from app.auth.models import User
 from utils.errors_handler import handle_alchemy_error
 
 
@@ -20,20 +21,53 @@ class ProductsManager:
         self.categories_service = ProductCategoriesService()
 
     @handle_alchemy_error
-    async def create_product(self, session: AsyncSession, product_data: schemas.ProductCreate) -> schemas.Product:
+    async def create_product(
+        self, 
+        session: AsyncSession, 
+        product_data: schemas.ProductCreate,
+        current_user: User
+    ) -> schemas.Product:
         """Create a new product with validation"""
-        # Create product
-        product = await self.service.create_product(session, product_data)
+        # Check if user is a seller
+        if not current_user.is_seller:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only sellers can create products"
+            )
+        
+        # Get seller by user's master_id
+        seller = await self.sellers_service.get_seller_by_master_id(session, current_user.id)
+        if not seller:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Seller account not found for current user"
+            )
+        
+        # Create product with seller_id
+        product = await self.service.create_product(session, product_data, seller.id)
         await session.commit()
 
-        # Return created product with images
+        # Return created product with images and attributes
         created_product = await self.service.get_product_by_id(session, product.id)
-        return schemas.Product.model_validate(created_product)
+        product_schema = schemas.Product.model_validate(created_product)
+        
+        # Add category IDs
+        categories = await self.categories_service.get_categories_by_product(session, product.id)
+        product_schema.category_ids = [cat.id for cat in categories]
+        
+        return product_schema
 
     async def get_products(self, session: AsyncSession) -> List[schemas.Product]:
         """Get list of products"""
         products = await self.service.get_products(session)
-        return [schemas.Product.model_validate(product) for product in products]
+        result = []
+        for product in products:
+            product_schema = schemas.Product.model_validate(product)
+            # Add category IDs
+            categories = await self.categories_service.get_categories_by_product(session, product.id)
+            product_schema.category_ids = [cat.id for cat in categories]
+            result.append(product_schema)
+        return result
 
     async def get_product_by_id(self, session: AsyncSession, product_id: int) -> schemas.Product:
         """Get product by ID"""
@@ -44,12 +78,24 @@ class ProductsManager:
                 detail=f"Product with id {product_id} not found"
             )
 
-        return schemas.Product.model_validate(product)
+        product_schema = schemas.Product.model_validate(product)
+        # Add category IDs
+        categories = await self.categories_service.get_categories_by_product(session, product_id)
+        product_schema.category_ids = [cat.id for cat in categories]
+        
+        return product_schema
 
     async def get_products_by_seller(self, session: AsyncSession, seller_id: int) -> List[schemas.Product]:
         """Get products by seller ID"""
         products = await self.service.get_products_by_seller(session, seller_id)
-        return [schemas.Product.model_validate(product) for product in products]
+        result = []
+        for product in products:
+            product_schema = schemas.Product.model_validate(product)
+            # Add category IDs
+            categories = await self.categories_service.get_categories_by_product(session, product.id)
+            product_schema.category_ids = [cat.id for cat in categories]
+            result.append(product_schema)
+        return result
 
     async def get_product_with_seller(self, session: AsyncSession, product_id: int) -> schemas.ProductWithSeller:
         """Get product with seller information"""
@@ -69,7 +115,7 @@ class ProductsManager:
             )
 
         product_schema = schemas.Product.model_validate(product)
-        seller_schema = sellers_schemas.Seller.model_validate(seller)
+        seller_schema = sellers_schemas.PublicSeller.model_validate(seller)
         
         return schemas.ProductWithSeller(
             **product_schema.model_dump(),
@@ -118,7 +164,7 @@ class ProductsManager:
         categories_list = [categories_schemas.ProductCategory.model_validate(cat) for cat in categories]
 
         product_schema = schemas.Product.model_validate(product)
-        seller_schema = sellers_schemas.Seller.model_validate(seller)
+        seller_schema = sellers_schemas.PublicSeller.model_validate(seller)
         
         return schemas.ProductWithDetails(
             **product_schema.model_dump(),
@@ -136,7 +182,13 @@ class ProductsManager:
         """Update product with validation"""
         updated_product = await self.service.update_product(session, product_id, product_data)
         await session.commit()
-        return schemas.Product.model_validate(updated_product)
+        
+        product_schema = schemas.Product.model_validate(updated_product)
+        # Add category IDs
+        categories = await self.categories_service.get_categories_by_product(session, product_id)
+        product_schema.category_ids = [cat.id for cat in categories]
+        
+        return product_schema
 
     @handle_alchemy_error
     async def delete_product(self, session: AsyncSession, product_id: int) -> None:
@@ -152,4 +204,66 @@ class ProductsManager:
     async def get_products_by_ids(self, session: AsyncSession, product_ids: List[int]) -> List[schemas.Product]:
         """Get products by list of IDs"""
         products = await self.service.get_products_by_ids(session, product_ids)
-        return [schemas.Product.model_validate(product) for product in products]
+        result = []
+        for product in products:
+            product_schema = schemas.Product.model_validate(product)
+            # Add category IDs
+            categories = await self.categories_service.get_categories_by_product(session, product.id)
+            product_schema.category_ids = [cat.id for cat in categories]
+            result.append(product_schema)
+        return result
+
+    @handle_alchemy_error
+    async def create_product_attribute(
+        self, session: AsyncSession, attribute_data: schemas.ProductAttributeCreate
+    ) -> schemas.ProductAttribute:
+        """Create a new product attribute"""
+        attribute = await self.service.create_product_attribute(session, attribute_data)
+        await session.commit()
+        return schemas.ProductAttribute.model_validate(attribute)
+
+    async def get_product_attribute_by_id(
+        self, session: AsyncSession, attribute_id: int
+    ) -> schemas.ProductAttribute:
+        """Get product attribute by ID"""
+        attribute = await self.service.get_product_attribute_by_id(session, attribute_id)
+        if not attribute:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product attribute with id {attribute_id} not found"
+            )
+        return schemas.ProductAttribute.model_validate(attribute)
+
+    async def get_product_attributes_by_product(
+        self, session: AsyncSession, product_id: int
+    ) -> List[schemas.ProductAttribute]:
+        """Get all attributes for a product"""
+        attributes = await self.service.get_product_attributes_by_product(session, product_id)
+        return [schemas.ProductAttribute.model_validate(attr) for attr in attributes]
+
+    async def get_product_attribute_by_product_and_slug(
+        self, session: AsyncSession, product_id: int, slug: str
+    ) -> schemas.ProductAttribute:
+        """Get product attribute by product ID and slug"""
+        attribute = await self.service.get_product_attribute_by_product_and_slug(session, product_id, slug)
+        if not attribute:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product attribute with slug '{slug}' not found for product {product_id}"
+            )
+        return schemas.ProductAttribute.model_validate(attribute)
+
+    @handle_alchemy_error
+    async def update_product_attribute(
+        self, session: AsyncSession, attribute_id: int, attribute_data: schemas.ProductAttributeUpdate
+    ) -> schemas.ProductAttribute:
+        """Update product attribute"""
+        updated_attribute = await self.service.update_product_attribute(session, attribute_id, attribute_data)
+        await session.commit()
+        return schemas.ProductAttribute.model_validate(updated_attribute)
+
+    @handle_alchemy_error
+    async def delete_product_attribute(self, session: AsyncSession, attribute_id: int) -> None:
+        """Delete product attribute"""
+        await self.service.delete_product_attribute(session, attribute_id)
+        await session.commit()

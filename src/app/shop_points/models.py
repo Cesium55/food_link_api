@@ -1,12 +1,12 @@
 from typing import List, Optional, TYPE_CHECKING
-from sqlalchemy import Column, Integer, Double, ForeignKey, CheckConstraint, Index
+from sqlalchemy import Column, Integer, Double, ForeignKey, CheckConstraint, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models import Base, ImageMixin
 
 if TYPE_CHECKING:
     from app.sellers.models import Seller
-    from app.products.models import ProductEntry
+    from app.offers.models import Offer
 
 
 class ShopPoint(Base):
@@ -18,23 +18,23 @@ class ShopPoint(Base):
     seller_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("sellers.id"), nullable=False, index=True
     )
-    latitude: Mapped[Optional[float]] = mapped_column(Double)
-    longitude: Mapped[Optional[float]] = mapped_column(Double)
-
-    __table_args__ = (
-        CheckConstraint(
-            "latitude >= -90 AND latitude <= 90", name="ck_shop_point_latitude_range"
-        ),
-        CheckConstraint(
-            "longitude >= -180 AND longitude <= 180",
-            name="ck_shop_point_longitude_range",
-        ),
-        Index("ix_shop_points_coordinates", "latitude", "longitude"),
-    )
+    
+    # Location coordinates
+    latitude: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    
+    # Address fields for Yandex Maps integration
+    address_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Raw address
+    address_formated: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Formatted address
+    region: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Region
+    city: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # City
+    street: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Street
+    house: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # House number
+    geo_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Yandex Geocoder GEO ID
 
     seller: Mapped["Seller"] = relationship("Seller", back_populates="shop_points")
-    product_entries: Mapped[List["ProductEntry"]] = relationship(
-        "ProductEntry", back_populates="shop_point"
+    offers: Mapped[List["Offer"]] = relationship(
+        "Offer", back_populates="shop_point"
     )
     images: Mapped[List["ShopPointImage"]] = relationship(
         "ShopPointImage", back_populates="shop_point", order_by="ShopPointImage.order"
