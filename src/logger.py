@@ -45,6 +45,15 @@ class AsyncLogger:
         extra_str = str(extra) if extra else None
         await self._queue.put((level, message, extra_str))
     
+    async def flush(self):
+        """Wait for all logs in queue to be written"""
+        if self._task and not self._task.done():
+            # Wait until queue is empty
+            while not self._queue.empty():
+                await asyncio.sleep(0.01)
+            # Give a bit more time for file write to complete
+            await asyncio.sleep(0.05)
+    
     async def debug(self, message: str, extra: Optional[dict] = None):
         """Log debug message"""
         await self._log('DEBUG', message, extra)
@@ -75,7 +84,54 @@ class AsyncLogger:
                 pass
 
 
+class SyncLogger:
+    """Synchronous logger that writes logs to file immediately"""
+    
+    def __init__(self, name: str, log_file: str):
+        self.name = name
+        self.log_file = log_file
+        self._log_level = getattr(settings, 'log_level', 'INFO').upper()
+        
+        # Create log directory if it doesn't exist
+        Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+    
+    def _log(self, level: str, message: str, extra: Optional[dict] = None):
+        """Internal logging method"""
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_message = f"{timestamp} - {self.name} - {level} - {message}"
+        if extra:
+            log_message += f" - {extra}"
+        log_message += "\n"
+        
+        try:
+            with open(self.log_file, 'a', encoding='utf-8') as f:
+                f.write(log_message)
+        except Exception as e:
+            print(f"Error in sync logger: {e}")
+    
+    def debug(self, message: str, extra: Optional[dict] = None):
+        """Log debug message"""
+        self._log('DEBUG', message, extra)
+    
+    def info(self, message: str, extra: Optional[dict] = None):
+        """Log info message"""
+        self._log('INFO', message, extra)
+    
+    def warning(self, message: str, extra: Optional[dict] = None):
+        """Log warning message"""
+        self._log('WARNING', message, extra)
+    
+    def error(self, message: str, extra: Optional[dict] = None):
+        """Log error message"""
+        self._log('ERROR', message, extra)
+    
+    def critical(self, message: str, extra: Optional[dict] = None):
+        """Log critical message"""
+        self._log('CRITICAL', message, extra)
+
+
 _loggers = {}
+_sync_loggers = {}
 
 
 def get_logger(name: str) -> AsyncLogger:
@@ -83,4 +139,12 @@ def get_logger(name: str) -> AsyncLogger:
     if name not in _loggers:
         log_file = str(Path('logs') / 'app.log')
         _loggers[name] = AsyncLogger(name, log_file)
-    return _loggers[name] 
+    return _loggers[name]
+
+
+def get_sync_logger(name: str) -> SyncLogger:
+    """Get or create a sync logger"""
+    if name not in _sync_loggers:
+        log_file = str(Path('logs') / 'app.log')
+        _sync_loggers[name] = SyncLogger(name, log_file)
+    return _sync_loggers[name] 

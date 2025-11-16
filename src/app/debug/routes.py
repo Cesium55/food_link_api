@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Request, HTTPException
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import json
+import asyncio
+from pydantic import BaseModel, Field
 from app.debug.init import initialize_categories_from_json_file
 from app.purchases.tasks import cancel_all_expired_purchases
+from config import settings
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
@@ -58,3 +61,230 @@ async def cancel_expired_purchases(request: Request) -> Dict[str, Any]:
             status_code=500,
             detail=f"Failed to cancel expired purchases: {str(e)}"
         )
+
+
+class CreatePaymentRequest(BaseModel):
+    """Модель запроса для создания платежа"""
+    amount: float = Field(..., description="Сумма платежа", gt=0)
+    currency: str = Field(default="RUB", description="Валюта платежа")
+    description: Optional[str] = Field(default="Тестовый платеж", description="Описание платежа")
+    return_url: Optional[str] = Field(
+        default="http://localhost:3000/payment/return",
+        description="URL для возврата после оплаты"
+    )
+
+
+@router.post("/create-payment")
+async def create_payment(request_body: CreatePaymentRequest) -> Dict[str, Any]:
+    """
+    Создать платеж через YooKassa.
+    
+    Пользователь сможет выбрать способ оплаты на странице YooKassa.
+    Способ оплаты не указывается - YooKassa покажет все доступные варианты.
+    
+    Требуются настройки в .env:
+    - YOOKASSA_SHOP_ID
+    - YOOKASSA_SECRET_KEY
+    
+    Пример запроса:
+    ```json
+    {
+        "amount": 100.00,
+        "description": "Оплата заказа",
+        "return_url": "http://localhost:3000/payment/return"
+    }
+    ```
+    """
+    # Проверяем наличие настроек YooKassa
+    if not settings.yookassa_shop_id or not settings.yookassa_secret_key:
+        raise HTTPException(
+            status_code=500,
+            detail="YooKassa credentials not configured. Please set YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY in .env"
+        )
+    
+    try:
+        # Импортируем библиотеку yookassa
+        from yookassa import Configuration, Payment
+        
+        # Настраиваем YooKassa (синхронно)
+        Configuration.account_id = settings.yookassa_shop_id
+        Configuration.secret_key = settings.yookassa_secret_key
+        
+        # Формируем параметры платежа
+        payment_data = {
+            "amount": {
+                "value": f"{request_body.amount:.2f}",
+                "currency": request_body.currency
+            },
+            "confirmation": {
+                "type": "redirect",
+                "return_url": request_body.return_url
+            },
+            "description": request_body.description,
+            "capture": True  # Автоматическое подтверждение после оплаты
+        }
+        
+        # Создаем платеж синхронно в отдельном потоке (чтобы не блокировать event loop)
+        def create_payment_sync():
+            payment_response = Payment.create(payment_data, idempotency_key=None)
+            return payment_response
+        
+        # Выполняем синхронную функцию в пуле потоков
+        payment_response = await asyncio.to_thread(create_payment_sync)
+        
+        # Преобразуем ответ в словарь для JSON-сериализации
+        payment_dict = {
+            "id": payment_response.id,
+            "status": payment_response.status,
+            "amount": {
+                "value": payment_response.amount.value,
+                "currency": payment_response.amount.currency
+            },
+            "description": payment_response.description,
+            "confirmation": {
+                "type": payment_response.confirmation.type,
+                "confirmation_url": payment_response.confirmation.confirmation_url
+            },
+            "created_at": payment_response.created_at.isoformat() if hasattr(payment_response.created_at, 'isoformat') else str(payment_response.created_at),
+            "paid": payment_response.paid,
+        }
+        
+        # Добавляем информацию о способе оплаты, если она есть
+        if hasattr(payment_response, 'payment_method') and payment_response.payment_method:
+            payment_dict["payment_method"] = {
+                "type": payment_response.payment_method.type if hasattr(payment_response.payment_method, 'type') else None,
+            }
+        
+        return {
+            "success": True,
+            "message": "Payment created successfully",
+            "payment": payment_dict
+        }
+        
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to import yookassa library: {str(e)}. Make sure yookassa>=3.8.0 is installed."
+        )
+    except Exception as e:
+        # Проверяем, является ли это ошибкой YooKassa API
+        error_message = str(e)
+        error_type = type(e).__name__
+        
+        # Извлекаем дополнительную информацию об ошибке
+        error_code = getattr(e, 'code', None)
+        error_description = getattr(e, 'description', None)
+        error_id = getattr(e, 'id', None)
+        
+        # Пытаемся получить детали из ответа API
+        if hasattr(e, 'response') and e.response:
+            try:
+                if hasattr(e.response, 'json'):
+                    error_data = e.response.json()
+                    if isinstance(error_data, dict):
+                        error_description = error_data.get('description', error_description)
+                        error_code = error_data.get('code', error_code)
+                        error_id = error_data.get('id', error_id)
+            except:
+                pass
+        
+        # Пытаемся распарсить строку ошибки, если она содержит словарь
+        # Например: "{'type': 'error', 'id': '...', 'description': '...', 'code': '...'}"
+        # или: "{'type': 'error', 'id': '019a8368-996e-7b45-9a73-e4f064e0c92e', 'description': 'Payment method is not available', 'code': 'invalid_request'}"
+        if not error_code and not error_description:
+            try:
+                import ast
+                # Пытаемся распарсить через ast.literal_eval (безопасный способ)
+                if (error_message.startswith('{') and error_message.endswith('}')) or \
+                   (error_message.startswith("'") and "'" in error_message):
+                    error_dict = ast.literal_eval(error_message)
+                    if isinstance(error_dict, dict):
+                        error_description = error_dict.get('description', error_description)
+                        error_code = error_dict.get('code', error_code)
+                        error_id = error_dict.get('id', error_id)
+            except:
+                # Если не удалось через ast, пытаемся через regex
+                try:
+                    import re
+                    # Ищем description: '...'
+                    desc_match = re.search(r"'description':\s*'([^']+)'", error_message)
+                    if desc_match:
+                        error_description = desc_match.group(1)
+                    
+                    # Ищем code: '...'
+                    code_match = re.search(r"'code':\s*'([^']+)'", error_message)
+                    if code_match:
+                        error_code = code_match.group(1)
+                    
+                    # Ищем id: '...'
+                    id_match = re.search(r"'id':\s*'([^']+)'", error_message)
+                    if id_match:
+                        error_id = id_match.group(1)
+                except:
+                    pass
+        
+        # Проверяем тип ошибки для правильного HTTP статуса
+        error_lower = error_message.lower()
+        description_lower = str(error_description).lower() if error_description else ""
+        
+        if 'ForbiddenError' in error_type or '403' in error_message or 'unauthorized' in error_lower or 'authentication' in error_lower:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "YooKassa authentication error",
+                    "message": "Ошибка аутентификации. Проверьте YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY.",
+                    "yookassa_error": error_message,
+                    "yookassa_error_type": error_type,
+                    "yookassa_code": error_code
+                }
+            )
+        elif 'NotFoundError' in error_type or '404' in error_message:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "YooKassa resource not found",
+                    "message": error_message,
+                    "yookassa_error_type": error_type,
+                    "yookassa_code": error_code
+                }
+            )
+        elif 'TooManyRequestsError' in error_type or '429' in error_message or 'rate limit' in error_lower:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "YooKassa rate limit exceeded",
+                    "message": "Превышен лимит запросов. Попробуйте позже.",
+                    "yookassa_error": error_message,
+                    "yookassa_error_type": error_type
+                }
+            )
+        elif 'BadRequestError' in error_type or 'ApiError' in error_type or error_code:
+            # Общая ошибка API YooKassa (400, 422 и т.д.)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "YooKassa API error",
+                    "message": error_message,
+                    "yookassa_error_type": error_type,
+                    "code": error_code,
+                    "id": error_id,
+                    "description": error_description
+                }
+            )
+        else:
+            # Если это не специфичная ошибка YooKassa, обрабатываем как общую ошибку
+            import traceback
+            error_details = {
+                "error": "Unexpected error",
+                "message": error_message,
+                "type": error_type
+            }
+            
+            # В режиме отладки добавляем трейсбек
+            if settings.debug:
+                error_details["traceback"] = traceback.format_exc()
+            
+            raise HTTPException(
+                status_code=500,
+                detail=error_details
+            )

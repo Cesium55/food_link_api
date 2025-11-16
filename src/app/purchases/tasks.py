@@ -21,13 +21,17 @@ def cancel_expired_purchase(purchase_id: int) -> None:
         purchase_id: ID of the purchase to cancel
     """
     with get_sync_session() as session:
-        # Get purchase
-        purchase = session.query(Purchase).filter(Purchase.id == purchase_id).first()
+        # Lock purchase first to prevent race conditions
+        purchase = session.query(Purchase).filter(
+            Purchase.id == purchase_id
+        ).with_for_update().first()
+        
         if not purchase:
             # Purchase might have been deleted already
             return
         
         # Only cancel if purchase is still pending
+        # If purchase was confirmed, reserved_count was already decreased on successful payment
         if purchase.status != PurchaseStatus.PENDING.value:
             # Purchase was already paid or cancelled
             return
@@ -37,14 +41,24 @@ def cancel_expired_purchase(purchase_id: int) -> None:
             PurchaseOffer.purchase_id == purchase_id
         ).all()
         
-        # Release reservations
-        from sqlalchemy import func
-        for purchase_offer in purchase_offers:
-            session.execute(
-                update(Offer)
-                .where(Offer.id == purchase_offer.offer_id)
-                .values(reserved_count=func.coalesce(Offer.reserved_count, 0) - purchase_offer.quantity)
-            )
+        if purchase_offers:
+            # Get offer IDs and lock them before updating
+            offer_ids = [po.offer_id for po in purchase_offers]
+            offers_service = OffersService()
+            
+            # Lock offers in order to prevent deadlocks
+            locked_offers = session.query(Offer).filter(
+                Offer.id.in_(offer_ids)
+            ).order_by(Offer.id).with_for_update().all()
+            
+            # Release reservations using service method
+            for purchase_offer in purchase_offers:
+                from sqlalchemy import func
+                session.execute(
+                    update(Offer)
+                    .where(Offer.id == purchase_offer.offer_id)
+                    .values(reserved_count=func.coalesce(Offer.reserved_count, 0) - purchase_offer.quantity)
+                )
         
         # Update purchase status to cancelled
         session.execute(

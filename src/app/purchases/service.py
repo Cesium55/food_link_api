@@ -56,6 +56,17 @@ class PurchasesService:
         )
         return result.scalar_one_or_none()
 
+    async def get_purchase_by_id_for_update(
+        self, session: AsyncSession, purchase_id: int
+    ) -> Optional[Purchase]:
+        """Get purchase by ID with FOR UPDATE lock"""
+        result = await session.execute(
+            select(Purchase)
+            .where(Purchase.id == purchase_id)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def get_purchase_offers_by_purchase_id(
         self, session: AsyncSession, purchase_id: int
     ) -> List[PurchaseOffer]:

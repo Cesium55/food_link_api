@@ -10,6 +10,7 @@ from models import Base
 if TYPE_CHECKING:
     from app.auth.models import User
     from app.offers.models import Offer
+    from app.payments.models import UserPayment
 
 
 class PurchaseStatus(PyEnum):
@@ -57,6 +58,9 @@ class Purchase(Base):
     )
     offer_results: Mapped[List["PurchaseOfferResult"]] = relationship(
         "PurchaseOfferResult", back_populates="purchase", cascade="all, delete-orphan"
+    )
+    payments: Mapped[List["UserPayment"]] = relationship(
+        "UserPayment", back_populates="purchase", cascade="all, delete-orphan"
     )
 
 

@@ -23,8 +23,9 @@ async def create_purchase(
     All offers must be valid, otherwise an error is raised.
     Validates availability, checks expiration dates, reserves items, and calculates total cost.
     """
+    base_url = f"{request.url.scheme}://{request.url.netloc}"
     return await purchases_manager.create_purchase(
-        request.state.session, current_user.id, purchase_data
+        request.state.session, current_user.id, purchase_data, base_url
     )
 
 
@@ -41,8 +42,9 @@ async def create_purchase_with_partial_success(
     Validates availability, checks expiration dates, reserves items, and calculates total cost.
     If an offer has insufficient quantity, it will be added with available quantity.
     """
+    base_url = f"{request.url.scheme}://{request.url.netloc}"
     result = await purchases_manager.create_purchase_with_partial_success(
-        request.state.session, current_user.id, purchase_data
+        request.state.session, current_user.id, purchase_data, base_url
     )
     return result.purchase
 

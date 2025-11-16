@@ -22,4 +22,5 @@ dependencies = [
     "aiofiles>=25.1.0",
     "redis[hiredis]>=5.0.0",
     "celery>=5.5.3",
+    "yookassa>=3.8.0",
 ]

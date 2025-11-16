@@ -20,13 +20,16 @@ class PurchasesManager:
     def __init__(self):
         self.service = PurchasesService()
         self.offers_service = OffersService()
+        from app.payments.manager import PaymentsManager
+        self.payments_manager = PaymentsManager()
 
     @handle_alchemy_error
     async def create_purchase(
         self,
         session: AsyncSession,
         user_id: int,
-        purchase_data: schemas.PurchaseCreate
+        purchase_data: schemas.PurchaseCreate,
+        base_url: str
     ) -> schemas.PurchaseWithOffers:
         """
         Create a new purchase with full validation.
@@ -128,6 +131,11 @@ class PurchasesManager:
         
         await self.service.create_purchase_offer_results(session, purchase.id, offer_results_data)
         
+        # Create payment for this purchase (in the same transaction)
+        await self.payments_manager.create_payment_for_purchase(
+            session, purchase.id, purchase.total_cost, base_url
+        )
+        
         # Commit transaction (releases locks)
         await session.commit()
         
@@ -156,7 +164,8 @@ class PurchasesManager:
         self,
         session: AsyncSession,
         user_id: int,
-        purchase_data: schemas.PurchaseCreate
+        purchase_data: schemas.PurchaseCreate,
+        base_url: str
     ) -> schemas.PurchaseCreateResponse:
         """
         Create a new purchase with partial success support.
@@ -292,6 +301,11 @@ class PurchasesManager:
         
         await self.service.create_purchase_offer_results(session, purchase.id, offer_results_data)
         
+        # Create payment for this purchase (in the same transaction)
+        await self.payments_manager.create_payment_for_purchase(
+            session, purchase.id, total_cost, base_url
+        )
+        
         # Commit transaction (releases locks)
         await session.commit()
         
@@ -410,8 +424,9 @@ class PurchasesManager:
                     detail=f"Invalid status. Valid statuses: {', '.join(valid_statuses)}"
                 )
             
-            # If cancelling, release reserved items (if purchase was pending or confirmed)
-            if status_data.status == PurchaseStatus.CANCELLED.value and purchase.status in [PurchaseStatus.PENDING.value, PurchaseStatus.CONFIRMED.value]:
+            # If cancelling, release reserved items (only if purchase was pending)
+            # If purchase was confirmed, reserved_count was already decreased on successful payment
+            if status_data.status == PurchaseStatus.CANCELLED.value and purchase.status == PurchaseStatus.PENDING.value:
                 # Get purchase offers to release reservations
                 purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase_id)
                 
@@ -448,8 +463,9 @@ class PurchasesManager:
                 detail=f"Purchase with id {purchase_id} not found"
             )
         
-        # Release reserved items if purchase was pending or confirmed
-        if purchase.status in [PurchaseStatus.PENDING.value, PurchaseStatus.CONFIRMED.value]:
+        # Release reserved items only if purchase was pending
+        # If purchase was confirmed, reserved_count was already decreased on successful payment
+        if purchase.status == PurchaseStatus.PENDING.value:
             purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase_id)
             
             # Get offer IDs that need to be unlocked

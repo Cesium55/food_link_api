@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     
     yandex_map_api_key: str = "UNDEFINED_KEY"
     
+    # Настройки YooKassa
+    yookassa_shop_id: Optional[str] = None
+    yookassa_secret_key: Optional[str] = None    
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

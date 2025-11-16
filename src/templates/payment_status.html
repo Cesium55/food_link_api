@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Status</title>
+</head>
+<body>
+    <script>
+        window.PAYMENT_ID = {{ payment_id }};
+        window.PAYMENT_STATUS = '{{ payment_status }}';
+        window.PURCHASE_ID = {{ purchase_id }};
+    </script>
+    <script src="/static/js/payment_status.js"></script>
+</body>
+</html>

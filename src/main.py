@@ -15,6 +15,7 @@ from app.auth.routes import router as auth_router
 from app.debug.routes import router as debug_router
 from app.maps.routes import router as maps_router
 from app.purchases.routes import router as purchases_router
+from app.payments.routes import router as payments_router
 
 from middleware.insert_session_middleware import InsertSessionMiddleware
 from middleware.timing_middleware import TimingMiddleware
@@ -28,7 +29,6 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-
 
 app = FastAPI(
     title=settings.app_name,
@@ -52,6 +52,7 @@ app.include_router(products_router)
 app.include_router(offers_router)
 app.include_router(product_categories_router)
 app.include_router(purchases_router)
+app.include_router(payments_router)
 app.include_router(debug_router)
 app.include_router(maps_router)
 
