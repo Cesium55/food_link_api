@@ -24,3 +24,6 @@ wheels/
 
 *.localinfo
 *.log
+
+*.pem
+keys/

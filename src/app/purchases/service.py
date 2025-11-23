@@ -1,8 +1,10 @@
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert, update, delete
+from sqlalchemy import select, insert, update, delete, and_
+from sqlalchemy.orm import selectinload
 
 from app.purchases.models import Purchase, PurchaseOffer, PurchaseOfferResult
+from app.offers.models import Offer
 
 
 class PurchasesService:
@@ -166,4 +168,113 @@ class PurchasesService:
             .order_by(PurchaseOfferResult.id)
         )
         return list(result.scalars().all())
+
+    async def update_purchase_offer_fulfillment(
+        self,
+        session: AsyncSession,
+        purchase_id: int,
+        offer_id: int,
+        fulfillment_status: str,
+        fulfilled_quantity: int,
+        fulfilled_by_seller_id: int,
+        unfulfilled_reason: Optional[str] = None
+    ) -> PurchaseOffer:
+        """Update fulfillment fields in PurchaseOffer"""
+        result = await session.execute(
+            update(PurchaseOffer)
+            .where(
+                and_(
+                    PurchaseOffer.purchase_id == purchase_id,
+                    PurchaseOffer.offer_id == offer_id
+                )
+            )
+            .values(
+                fulfillment_status=fulfillment_status,
+                fulfilled_quantity=fulfilled_quantity,
+                fulfilled_by_seller_id=fulfilled_by_seller_id,
+                unfulfilled_reason=unfulfilled_reason
+            )
+            .returning(PurchaseOffer)
+        )
+        return result.scalar_one()
+
+    async def get_purchase_offers_by_purchase_with_fulfillment(
+        self, session: AsyncSession, purchase_id: int
+    ) -> List[PurchaseOffer]:
+        """Get purchase offers by purchase ID with fulfillment information"""
+        result = await session.execute(
+            select(PurchaseOffer)
+            .where(PurchaseOffer.purchase_id == purchase_id)
+            .options(selectinload(PurchaseOffer.offer))
+        )
+        return list(result.scalars().all())
+
+    async def get_purchase_offers_by_seller_and_purchase(
+        self, session: AsyncSession, purchase_id: int, seller_id: int
+    ) -> List[PurchaseOffer]:
+        """
+        Get purchase offers for specific seller and purchase.
+        Filters offers by seller's shop points.
+        """
+        # Get shop point IDs for the seller
+        from app.shop_points.models import ShopPoint
+        shop_points_result = await session.execute(
+            select(ShopPoint.id)
+            .where(ShopPoint.seller_id == seller_id)
+        )
+        shop_point_ids = [row[0] for row in shop_points_result.all()]
+        
+        if not shop_point_ids:
+            return []
+        
+        # Get offers for these shop points
+        offers_result = await session.execute(
+            select(Offer.id)
+            .where(Offer.shop_id.in_(shop_point_ids))
+        )
+        offer_ids = [row[0] for row in offers_result.all()]
+        
+        if not offer_ids:
+            return []
+        
+        # Get purchase offers for these offers
+        result = await session.execute(
+            select(PurchaseOffer)
+            .where(
+                and_(
+                    PurchaseOffer.purchase_id == purchase_id,
+                    PurchaseOffer.offer_id.in_(offer_ids)
+                )
+            )
+            .options(selectinload(PurchaseOffer.offer).selectinload(Offer.product))
+        )
+        return list(result.scalars().all())
+
+    async def check_all_offers_fulfilled(
+        self, session: AsyncSession, purchase_id: int
+    ) -> bool:
+        """Check if all offers in purchase have been fulfilled (processed)"""
+        # Count total offers
+        total_result = await session.execute(
+            select(PurchaseOffer)
+            .where(PurchaseOffer.purchase_id == purchase_id)
+        )
+        total_offers = len(list(total_result.scalars().all()))
+        
+        if total_offers == 0:
+            return False
+        
+        # Count fulfilled offers (status is not NULL)
+        fulfilled_result = await session.execute(
+            select(PurchaseOffer)
+            .where(
+                and_(
+                    PurchaseOffer.purchase_id == purchase_id,
+                    PurchaseOffer.fulfillment_status.isnot(None)
+                )
+            )
+        )
+        fulfilled_offers = len(list(fulfilled_result.scalars().all()))
+        
+        return fulfilled_offers == total_offers
 

@@ -34,6 +34,10 @@ class PurchaseOffer(PurchaseOfferBase):
     
     offer_id: int = Field(..., description="Offer ID")
     offer: Optional["Offer"] = Field(None, description="Offer information")
+    fulfillment_status: Optional[str] = Field(None, description="Fulfillment status: 'fulfilled', 'not_fulfilled', or None if not processed")
+    fulfilled_quantity: Optional[int] = Field(None, ge=0, description="Quantity fulfilled")
+    fulfilled_by_seller_id: Optional[int] = Field(None, description="ID of seller who fulfilled the offer")
+    unfulfilled_reason: Optional[str] = Field(None, description="Reason for not fulfilling (NotImplemented stub)")
 
 
 class PurchaseCreate(BaseModel):
@@ -85,6 +89,57 @@ class PurchaseCreateResponse(BaseModel):
 class PurchaseUpdate(BaseModel):
     """Schema for updating purchase"""
     status: Optional[str] = Field(None, description="Purchase status")
+
+
+class OrderTokenResponse(BaseModel):
+    """Response schema for order token generation"""
+    token: str = Field(..., description="JWT token containing order ID")
+    order_id: int = Field(..., description="Order ID")
+
+
+class OrderTokenRequest(BaseModel):
+    """Request schema for order token verification"""
+    token: str = Field(..., description="JWT token containing order ID")
+
+
+class PurchaseOfferFulfillmentStatus(BaseModel):
+    """Status of fulfillment for one offer"""
+    purchase_offer_id: int = Field(..., description="Purchase offer ID (composite key with purchase_id)")
+    offer_id: int = Field(..., description="Offer ID")
+    status: str = Field(..., description="Fulfillment status: 'fulfilled' or 'not_fulfilled'")
+    fulfilled_quantity: int = Field(..., ge=0, description="Quantity fulfilled")
+    unfulfilled_reason: Optional[str] = Field(None, description="Reason for not fulfilling (NotImplemented stub)")
+
+
+class OrderFulfillmentRequest(BaseModel):
+    """Request schema for order fulfillment"""
+    items: List[PurchaseOfferFulfillmentStatus] = Field(..., min_length=1, description="List of offers with their fulfillment statuses")
+
+
+class PurchaseOfferForFulfillment(BaseModel):
+    """Information about offer for seller fulfillment"""
+    purchase_offer_id: int = Field(..., description="Purchase offer ID")
+    offer_id: int = Field(..., description="Offer ID")
+    quantity: int = Field(..., gt=0, description="Requested quantity")
+    fulfilled_quantity: Optional[int] = Field(None, ge=0, description="Already fulfilled quantity (if any)")
+    fulfillment_status: Optional[str] = Field(None, description="Current fulfillment status")
+    product_name: str = Field(..., description="Product name")
+    shop_point_id: int = Field(..., description="Shop point ID")
+    cost_at_purchase: Optional[float] = Field(None, ge=0, description="Cost at purchase time")
+
+
+class PurchaseInfoByTokenResponse(BaseModel):
+    """Response schema for purchase information by token (only seller's items)"""
+    purchase_id: int = Field(..., description="Purchase ID")
+    status: str = Field(..., description="Purchase status")
+    items: List[PurchaseOfferForFulfillment] = Field(default_factory=list, description="List of seller's offers")
+    total_cost: Optional[float] = Field(None, ge=0, description="Total cost of order (only for seller's items)")
+
+
+class OrderFulfillmentResponse(BaseModel):
+    """Response schema after order fulfillment"""
+    fulfilled_items: List[PurchaseOfferFulfillmentStatus] = Field(default_factory=list, description="Processed offers")
+    purchase_status: str = Field(..., description="Current purchase status")
 
 
 # Update forward references

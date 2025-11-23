@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, HTTPException, status
 from app.purchases import schemas
 from app.purchases.manager import PurchasesManager
 from utils.auth_dependencies import get_current_user
@@ -85,7 +85,6 @@ async def get_purchase(
     """
     Get purchase by ID
     """
-    from fastapi import HTTPException, status
     
     purchase = await purchases_manager.get_purchase_by_id(
         request.state.session, purchase_id
@@ -111,7 +110,6 @@ async def update_purchase_status(
     """
     Update purchase status
     """
-    from fastapi import HTTPException, status
     
     # Check if purchase belongs to current user
     purchase = await purchases_manager.get_purchase_by_id(
@@ -138,7 +136,7 @@ async def delete_purchase(
     """
     Delete purchase and release reservations
     """
-    from fastapi import HTTPException, status
+    
     
     # Check if purchase belongs to current user
     purchase = await purchases_manager.get_purchase_by_id(
@@ -152,4 +150,76 @@ async def delete_purchase(
         )
     
     await purchases_manager.delete_purchase(request.state.session, purchase_id)
+
+
+@router.post("/{purchase_id}/token", response_model=schemas.OrderTokenResponse)
+async def generate_order_token(
+    request: Request,
+    purchase_id: int,
+    current_user: User = Depends(get_current_user)
+) -> schemas.OrderTokenResponse:
+    """
+    Generate JWT token for order information.
+    Token can only be generated if the order is paid.
+    """
+    return await purchases_manager.generate_order_token(
+        request.state.session, purchase_id, current_user.id
+    )
+
+
+@router.post("/verify-token", response_model=schemas.PurchaseInfoByTokenResponse)
+async def verify_purchase_token(
+    request: Request,
+    token_data: schemas.OrderTokenRequest,
+    current_user: User = Depends(get_current_user)
+) -> schemas.PurchaseInfoByTokenResponse:
+    """
+    Verify purchase token and get purchase information (only seller's items).
+    Requires seller authentication.
+    """
+    from app.sellers.service import SellersService
+    sellers_service = SellersService()
+    
+    # Get seller by user
+    seller = await sellers_service.get_seller_by_master_id(
+        request.state.session, current_user.id
+    )
+    if not seller:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is not a seller"
+        )
+    
+    return await purchases_manager.verify_purchase_token(
+        request.state.session, token_data.token, seller.id
+    )
+
+
+@router.post("/{purchase_id}/fulfill", response_model=schemas.OrderFulfillmentResponse)
+async def fulfill_order_items(
+    request: Request,
+    purchase_id: int,
+    fulfillment_data: schemas.OrderFulfillmentRequest,
+    current_user: User = Depends(get_current_user)
+) -> schemas.OrderFulfillmentResponse:
+    """
+    Fulfill order items for a seller.
+    Seller can only fulfill items from their own shop points.
+    """
+    from app.sellers.service import SellersService
+    sellers_service = SellersService()
+    
+    # Get seller by user
+    seller = await sellers_service.get_seller_by_master_id(
+        request.state.session, current_user.id
+    )
+    if not seller:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is not a seller"
+        )
+    
+    return await purchases_manager.fulfill_order_items(
+        request.state.session, purchase_id, fulfillment_data, seller.id
+    )
 

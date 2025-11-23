@@ -25,10 +25,12 @@ class Settings(BaseSettings):
     db_name: str = "food_link"
     
     # JWT настройки для аутентификации
-    jwt_secret_key: str = "your-jwt-secret-key-here"
+    jwt_secret_key: str = "your-jwt-secret-key-here"  # Deprecated, kept for backward compatibility
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 30
-    jwt_algorithm: str = "HS256"
+    jwt_algorithm: str = "RS256"
+    jwt_private_key_path: str = "keys/jwt_private_key.pem"
+    jwt_public_key_path: str = "keys/jwt_public_key.pem"
     
     # Настройки CORS
     allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:8080"]

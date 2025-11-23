@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_async_session_generator
 from app.sellers.models import Seller
 from config import settings
+from app.auth.jwt_utils import JWTUtils
 
 from app.sellers.routes import router as sellers_router
 from app.shop_points.routes import router as shop_points_router
@@ -60,3 +61,25 @@ app.include_router(maps_router)
 @app.get("/")
 def index():
     return {"message": "Hello, World!"}
+
+
+@app.get("/public-key")
+def get_public_key():
+    """
+    Get public key for JWT verification in PEM format.
+    Returns the raw public key that can be used to verify JWT tokens.
+    """
+    try:
+        jwt_utils = JWTUtils()
+        public_key = jwt_utils.get_public_key()
+        return {"public_key": public_key}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"JWT algorithm does not support public key export: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error loading public key: {str(e)}"
+        )

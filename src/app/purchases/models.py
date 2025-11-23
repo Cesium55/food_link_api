@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
 from enum import Enum as PyEnum
-from sqlalchemy import Integer, Double, String, ForeignKey, CheckConstraint, UniqueConstraint
+from sqlalchemy import Integer, Double, String, ForeignKey, CheckConstraint, UniqueConstraint, Text, Index
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.auth.models import User
     from app.offers.models import Offer
     from app.payments.models import UserPayment
+    from app.sellers.models import Seller
 
 
 class PurchaseStatus(PyEnum):
@@ -77,6 +78,14 @@ class PurchaseOffer(Base):
     )
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     cost_at_purchase: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    
+    # Fulfillment fields
+    fulfillment_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    fulfilled_quantity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    fulfilled_by_seller_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("sellers.id"), nullable=True, index=True
+    )
+    unfulfilled_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         CheckConstraint("quantity > 0", name="ck_purchase_offer_quantity_positive"),
@@ -84,10 +93,19 @@ class PurchaseOffer(Base):
             "cost_at_purchase IS NULL OR cost_at_purchase >= 0",
             name="ck_purchase_offer_cost_positive"
         ),
+        CheckConstraint(
+            "fulfillment_status IS NULL OR fulfillment_status IN ('fulfilled', 'not_fulfilled')",
+            name="ck_purchase_offer_fulfillment_status_valid"
+        ),
+        CheckConstraint(
+            "fulfilled_quantity IS NULL OR fulfilled_quantity >= 0",
+            name="ck_purchase_offer_fulfilled_quantity_non_negative"
+        ),
     )
 
     purchase: Mapped["Purchase"] = relationship("Purchase", back_populates="purchase_offers")
     offer: Mapped["Offer"] = relationship("Offer", back_populates="purchase_offers")
+    fulfilled_by_seller: Mapped[Optional["Seller"]] = relationship("Seller")
 
 
 class PurchaseOfferResult(Base):

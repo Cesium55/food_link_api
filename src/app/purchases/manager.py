@@ -1,5 +1,6 @@
 from typing import List, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
 from fastapi import HTTPException, status
 
 from datetime import datetime, timezone, timedelta
@@ -12,6 +13,8 @@ from app.offers.models import Offer
 from utils.errors_handler import handle_alchemy_error
 from app.purchases.tasks import check_purchase_expiration
 from config import settings
+from app.auth.jwt_utils import JWTUtils
+from app.payments.models import PaymentStatus
 
 
 class PurchasesManager:
@@ -22,6 +25,9 @@ class PurchasesManager:
         self.offers_service = OffersService()
         from app.payments.manager import PaymentsManager
         self.payments_manager = PaymentsManager()
+        self.jwt_utils = JWTUtils()
+        from app.sellers.service import SellersService
+        self.sellers_service = SellersService()
 
     @handle_alchemy_error
     async def create_purchase(
@@ -500,12 +506,11 @@ class PurchasesManager:
         for po in purchase_offers:
             offer = offers_dict.get(po.offer_id)
             offer_schema = offers_schemas.Offer.model_validate(offer) if offer else None
-            purchase_offers_schemas.append(schemas.PurchaseOffer(
-                offer_id=po.offer_id,
-                quantity=po.quantity,
-                cost_at_purchase=po.cost_at_purchase,
-                offer=offer_schema
-            ))
+            # Use model_validate to automatically include all fields including fulfillment fields
+            purchase_offer_schema = schemas.PurchaseOffer.model_validate(po)
+            # Set offer separately as it's not part of PurchaseOffer model
+            purchase_offer_schema.offer = offer_schema
+            purchase_offers_schemas.append(purchase_offer_schema)
         
         # Convert offer_results to schemas
         offer_results_schemas = []
@@ -542,5 +547,301 @@ class PurchasesManager:
             purchase_offers=purchase_offers_schemas,
             offer_results=offer_results_schemas,
             ttl=ttl
+        )
+
+    @handle_alchemy_error
+    async def generate_order_token(
+        self, session: AsyncSession, purchase_id: int, user_id: int
+    ) -> schemas.OrderTokenResponse:
+        """
+        Generate JWT token for order information.
+        Token can only be generated if the order is paid.
+        
+        Args:
+            session: Database session
+            purchase_id: Purchase ID
+            user_id: User ID (to verify ownership)
+        
+        Returns:
+            OrderTokenResponse with JWT token and order ID
+        
+        Raises:
+            HTTPException: If purchase not found, doesn't belong to user, or is not paid
+        """
+        # Get purchase
+        purchase = await self.service.get_purchase_by_id(session, purchase_id)
+        if not purchase:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase with id {purchase_id} not found"
+            )
+        
+        # Check if purchase belongs to user
+        if purchase.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this purchase"
+            )
+        
+        # Check if purchase is paid
+        payment = await self.payments_manager.service.get_payment_by_purchase_id(
+            session, purchase_id
+        )
+        
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Purchase has no payment record"
+            )
+        
+        if payment.status != PaymentStatus.SUCCEEDED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Order token can only be generated for paid orders"
+            )
+        
+        # Generate JWT token with order ID
+        token = self.jwt_utils.create_order_token(purchase_id)
+        
+        return schemas.OrderTokenResponse(
+            token=token,
+            order_id=purchase_id
+        )
+
+    @handle_alchemy_error
+    async def verify_purchase_token(
+        self, session: AsyncSession, token: str, seller_id: int
+    ) -> schemas.PurchaseInfoByTokenResponse:
+        """
+        Verify purchase token and get purchase information (only seller's items).
+        
+        Args:
+            session: Database session
+            token: JWT token containing order ID
+            seller_id: Seller ID of current user
+        
+        Returns:
+            PurchaseInfoByTokenResponse with purchase info (only seller's items)
+        
+        Raises:
+            HTTPException: If token is invalid, purchase not found, or not paid
+        """
+        # Verify token
+        payload = self.jwt_utils.verify_order_token(token)
+        if not payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token"
+            )
+        
+        purchase_id = payload.get("order_id")
+        if not purchase_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token does not contain order_id"
+            )
+        
+        # Get purchase
+        purchase = await self.service.get_purchase_by_id(session, purchase_id)
+        if not purchase:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase with id {purchase_id} not found"
+            )
+        
+        # Check if purchase is paid
+        payment = await self.payments_manager.service.get_payment_by_purchase_id(
+            session, purchase_id
+        )
+        
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Purchase has no payment record"
+            )
+        
+        if payment.status != PaymentStatus.SUCCEEDED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Purchase is not paid"
+            )
+        
+        # Get purchase offers for this seller only
+        purchase_offers = await self.service.get_purchase_offers_by_seller_and_purchase(
+            session, purchase_id, seller_id
+        )
+        
+        # Build response items
+        items = []
+        total_cost = 0.0
+        
+        for po in purchase_offers:
+            if po.offer and po.offer.product:
+                items.append(schemas.PurchaseOfferForFulfillment(
+                    purchase_offer_id=po.offer_id,  # Using offer_id as identifier (composite key with purchase_id)
+                    offer_id=po.offer_id,
+                    quantity=po.quantity,
+                    fulfilled_quantity=po.fulfilled_quantity,
+                    fulfillment_status=po.fulfillment_status,
+                    product_name=po.offer.product.name,
+                    shop_point_id=po.offer.shop_id,
+                    cost_at_purchase=po.cost_at_purchase
+                ))
+                if po.cost_at_purchase:
+                    total_cost += po.cost_at_purchase * po.quantity
+        
+        return schemas.PurchaseInfoByTokenResponse(
+            purchase_id=purchase.id,
+            status=purchase.status,
+            items=items,
+            total_cost=total_cost if total_cost > 0 else None
+        )
+
+    @handle_alchemy_error
+    async def fulfill_order_items(
+        self,
+        session: AsyncSession,
+        purchase_id: int,
+        fulfillment_data: schemas.OrderFulfillmentRequest,
+        seller_id: int
+    ) -> schemas.OrderFulfillmentResponse:
+        """
+        Fulfill order items for a seller.
+        
+        Args:
+            session: Database session
+            purchase_id: Purchase ID
+            fulfillment_data: Order fulfillment request with items
+            seller_id: Seller ID of current user
+        
+        Returns:
+            OrderFulfillmentResponse with fulfilled items and purchase status
+        
+        Raises:
+            HTTPException: If validation fails
+        """
+        # Get purchase
+        purchase = await self.service.get_purchase_by_id(session, purchase_id)
+        if not purchase:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase with id {purchase_id} not found"
+            )
+        
+        # Check if purchase is paid
+        payment = await self.payments_manager.service.get_payment_by_purchase_id(
+            session, purchase_id
+        )
+        
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Purchase has no payment record"
+            )
+        
+        if payment.status != PaymentStatus.SUCCEEDED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Purchase is not paid"
+            )
+        
+        # Get seller's shop point IDs
+        from app.shop_points.models import ShopPoint
+        from sqlalchemy import select
+        shop_points_result = await session.execute(
+            select(ShopPoint.id)
+            .where(ShopPoint.seller_id == seller_id)
+        )
+        shop_point_ids = [row[0] for row in shop_points_result.all()]
+        
+        if not shop_point_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Seller has no shop points"
+            )
+        
+        # Get offers for these shop points
+        from app.offers.models import Offer
+        offers_result = await session.execute(
+            select(Offer.id)
+            .where(Offer.shop_id.in_(shop_point_ids))
+        )
+        seller_offer_ids = [row[0] for row in offers_result.all()]
+        
+        if not seller_offer_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Seller has no offers"
+            )
+        
+        # Validate and update each item
+        fulfilled_items = []
+        
+        for item in fulfillment_data.items:
+            # Get purchase offer
+            purchase_offer = await session.execute(
+                select(PurchaseOffer)
+                .where(
+                    and_(
+                        PurchaseOffer.purchase_id == purchase_id,
+                        PurchaseOffer.offer_id == item.offer_id
+                    )
+                )
+            )
+            po = purchase_offer.scalar_one_or_none()
+            
+            if not po:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Purchase offer with offer_id {item.offer_id} not found in purchase {purchase_id}"
+                )
+            
+            # Validate that offer belongs to seller
+            if item.offer_id not in seller_offer_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Offer {item.offer_id} does not belong to seller {seller_id}"
+                )
+            
+            # Validate quantity
+            if item.fulfilled_quantity > po.quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Fulfilled quantity {item.fulfilled_quantity} exceeds requested quantity {po.quantity} for offer {item.offer_id}"
+                )
+            
+            # Update fulfillment
+            updated_po = await self.service.update_purchase_offer_fulfillment(
+                session=session,
+                purchase_id=purchase_id,
+                offer_id=item.offer_id,
+                fulfillment_status=item.status,
+                fulfilled_quantity=item.fulfilled_quantity,
+                fulfilled_by_seller_id=seller_id,
+                unfulfilled_reason=item.unfulfilled_reason
+            )
+            
+            fulfilled_items.append(schemas.PurchaseOfferFulfillmentStatus(
+                purchase_offer_id=item.offer_id,  # Using offer_id as identifier (composite key with purchase_id)
+                offer_id=item.offer_id,
+                status=item.status,
+                fulfilled_quantity=item.fulfilled_quantity,
+                unfulfilled_reason=item.unfulfilled_reason
+            ))
+        
+        # Check if all offers are fulfilled
+        all_fulfilled = await self.service.check_all_offers_fulfilled(session, purchase_id)
+        
+        if all_fulfilled:
+            # Update purchase status to completed
+            await self.service.update_purchase_status(session, purchase_id, PurchaseStatus.COMPLETED.value)
+            purchase.status = PurchaseStatus.COMPLETED.value
+        else:
+            # Refresh purchase to get updated status
+            purchase = await self.service.get_purchase_by_id(session, purchase_id)
+        
+        return schemas.OrderFulfillmentResponse(
+            fulfilled_items=fulfilled_items,
+            purchase_status=purchase.status
         )
 
