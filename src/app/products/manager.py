@@ -1,6 +1,6 @@
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, UploadFile
 
 from app.products import schemas
 from app.products.service import ProductsService
@@ -10,6 +10,7 @@ from app.product_categories import schemas as categories_schemas
 from app.product_categories.service import ProductCategoriesService
 from app.auth.models import User
 from utils.errors_handler import handle_alchemy_error
+from utils.image_manager import ImageManager
 
 
 class ProductsManager:
@@ -19,6 +20,7 @@ class ProductsManager:
         self.service = ProductsService()
         self.sellers_service = SellersService()
         self.categories_service = ProductCategoriesService()
+        self.image_manager = ImageManager()
 
     @handle_alchemy_error
     async def create_product(
@@ -267,3 +269,60 @@ class ProductsManager:
         """Delete product attribute"""
         await self.service.delete_product_attribute(session, attribute_id)
         await session.commit()
+
+    @handle_alchemy_error
+    async def upload_product_image(
+        self,
+        session: AsyncSession,
+        product_id: int,
+        file: UploadFile,
+        order: int = 0
+    ) -> schemas.ProductImage:
+        """Upload image for product"""
+        return await self.image_manager.upload_and_create_image_record(
+            session=session,
+            entity_id=product_id,
+            file=file,
+            prefix="products",
+            order=order,
+            entity_name="product",
+            get_entity_func=self.service.get_product_by_id,
+            create_image_func=self.service.create_product_image,
+            schema_class=schemas.ProductImage
+        )
+
+    @handle_alchemy_error
+    async def upload_product_images(
+        self,
+        session: AsyncSession,
+        product_id: int,
+        files: list[UploadFile],
+        start_order: int = 0
+    ) -> list[schemas.ProductImage]:
+        """Upload multiple images for product"""
+        return await self.image_manager.upload_multiple_and_create_image_records(
+            session=session,
+            entity_id=product_id,
+            files=files,
+            prefix="products",
+            start_order=start_order,
+            entity_name="product",
+            get_entity_func=self.service.get_product_by_id,
+            create_image_func=self.service.create_product_image,
+            schema_class=schemas.ProductImage
+        )
+
+    @handle_alchemy_error
+    async def delete_product_image(
+        self,
+        session: AsyncSession,
+        image_id: int
+    ) -> None:
+        """Delete product image"""
+        await self.image_manager.delete_image_record(
+            session=session,
+            image_id=image_id,
+            entity_name="product",
+            get_image_func=self.service.get_product_image_by_id,
+            delete_image_func=self.service.delete_product_image
+        )

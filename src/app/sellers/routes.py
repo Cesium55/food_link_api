@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.sellers import schemas
 from app.sellers.manager import SellersManager
 from utils.auth_dependencies import get_current_user
@@ -120,3 +120,41 @@ async def get_sellers_by_ids(
     return await sellers_manager.get_sellers_by_ids(
         request.state.session, seller_ids
     )
+
+
+@router.post("/{seller_id}/images", response_model=schemas.SellerImage, status_code=201)
+async def upload_seller_image(
+    request: Request,
+    seller_id: int,
+    file: UploadFile = File(...),
+    order: int = Query(default=0, ge=0)
+) -> schemas.SellerImage:
+    """
+    Upload an image for a seller
+    """
+    return await sellers_manager.upload_seller_image(
+        request.state.session, seller_id, file, order
+    )
+
+
+@router.post("/{seller_id}/images/batch", response_model=List[schemas.SellerImage], status_code=201)
+async def upload_seller_images(
+    request: Request,
+    seller_id: int,
+    files: List[UploadFile] = File(...),
+    start_order: int = Query(default=0, ge=0)
+) -> List[schemas.SellerImage]:
+    """
+    Upload multiple images for a seller
+    """
+    return await sellers_manager.upload_seller_images(
+        request.state.session, seller_id, files, start_order
+    )
+
+
+@router.delete("/images/{image_id}", status_code=204)
+async def delete_seller_image(request: Request, image_id: int) -> None:
+    """
+    Delete a seller image
+    """
+    await sellers_manager.delete_seller_image(request.state.session, image_id)

@@ -52,7 +52,14 @@ class Settings(BaseSettings):
     
     # Настройки YooKassa
     yookassa_shop_id: Optional[str] = None
-    yookassa_secret_key: Optional[str] = None    
+    yookassa_secret_key: Optional[str] = None
+    
+    # Настройки S3/MinIO
+    s3_endpoint_url: str = "http://localhost:9000"
+    s3_access_key_id: str = "minioadmin"
+    s3_secret_access_key: str = "minioadmin"
+    s3_bucket_name: str = "food-link-images"
+    s3_region_name: str = "us-east-1"
     
     class Config:
         env_file = ".env"

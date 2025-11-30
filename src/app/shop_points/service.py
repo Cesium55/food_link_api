@@ -188,3 +188,35 @@ class ShopPointsService:
             .returning(ShopPoint)
         )
         return result.scalar_one()
+
+    async def create_shop_point_image(
+        self, session: AsyncSession, shop_point_id: int, s3_path: str, order: int = 0
+    ) -> ShopPointImage:
+        """Create a new shop point image"""
+        result = await session.execute(
+            insert(ShopPointImage)
+            .values(
+                shop_point_id=shop_point_id,
+                path=s3_path,
+                order=order
+            )
+            .returning(ShopPointImage)
+        )
+        return result.scalar_one()
+
+    async def get_shop_point_image_by_id(
+        self, session: AsyncSession, image_id: int
+    ) -> Optional[ShopPointImage]:
+        """Get shop point image by ID"""
+        result = await session.execute(
+            select(ShopPointImage).where(ShopPointImage.id == image_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_shop_point_image(
+        self, session: AsyncSession, image_id: int
+    ) -> None:
+        """Delete shop point image"""
+        await session.execute(
+            delete(ShopPointImage).where(ShopPointImage.id == image_id)
+        )

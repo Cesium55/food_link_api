@@ -15,7 +15,7 @@ services:
     networks:
       - food_link_network
 
-  # Приложение FastAPI (для разработки)
+  # Приложение FastAPI
   api:
     build: .
     container_name: food_link_api
@@ -50,6 +50,13 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_DB: ${REDIS_DB}
+      
+      # Настройки S3/MinIO
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minioadmin}}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-food-link-images}
+      S3_REGION_NAME: ${S3_REGION_NAME:-us-east-1}
     ports:
       - "${SERVER_PORT}:8000"
     networks:
@@ -57,8 +64,12 @@ services:
     volumes:
       - .:/app
     command: ["uv", "run", "python", "run.py"]
+    depends_on:
+      - postgres
+      - redis
+      - minio
 
-  # Redis (опционально)
+  # Redis
   redis:
     image: redis:latest
     container_name: food_link_redis
@@ -93,11 +104,36 @@ services:
     depends_on:
       - postgres
       - redis
+      - minio
     restart: unless-stopped
+
+  # MinIO S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    container_name: food_link_minio
+    hostname: food_link_minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - food_link_network
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
 
 volumes:
   postgres_data:
   redis_data:
+  minio_data:
 
 networks:
   food_link_network:

@@ -21,12 +21,23 @@ from app.payments.routes import router as payments_router
 from middleware.insert_session_middleware import InsertSessionMiddleware
 from middleware.timing_middleware import TimingMiddleware
 from middleware.response_wrapper_middleware import ResponseWrapperMiddleware
+from utils.image_manager import ImageManager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events"""
     # Startup
+    # Initialize MinIO bucket and set public policy
+    try:
+        image_manager = ImageManager()
+        await image_manager.initialize_bucket()
+    except Exception as e:
+        # Log error but don't fail startup
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to initialize MinIO bucket: {str(e)}")
+    
     yield
     
     # Shutdown

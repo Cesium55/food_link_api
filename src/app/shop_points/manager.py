@@ -8,6 +8,8 @@ from app.sellers import schemas as sellers_schemas
 from app.sellers.service import SellersService
 from app.maps.yandex_geocoder import create_geocoder
 from utils.errors_handler import handle_alchemy_error
+from utils.image_manager import ImageManager
+from fastapi import UploadFile
 
 
 class ShopPointsManager:
@@ -16,6 +18,7 @@ class ShopPointsManager:
     def __init__(self):
         self.service = ShopPointsService()
         self.sellers_service = SellersService()
+        self.image_manager = ImageManager()
 
     @handle_alchemy_error
     async def create_shop_point(self, session: AsyncSession, shop_point_data: schemas.ShopPointCreate) -> schemas.ShopPoint:
@@ -162,3 +165,60 @@ class ShopPointsManager:
             return schemas.ShopPoint.model_validate(created_shop_point)
         finally:
             await geocoder.close()
+
+    @handle_alchemy_error
+    async def upload_shop_point_image(
+        self,
+        session: AsyncSession,
+        shop_point_id: int,
+        file: UploadFile,
+        order: int = 0
+    ) -> schemas.ShopPointImage:
+        """Upload image for shop point"""
+        return await self.image_manager.upload_and_create_image_record(
+            session=session,
+            entity_id=shop_point_id,
+            file=file,
+            prefix="shop-points",
+            order=order,
+            entity_name="shop point",
+            get_entity_func=self.service.get_shop_point_by_id,
+            create_image_func=self.service.create_shop_point_image,
+            schema_class=schemas.ShopPointImage
+        )
+
+    @handle_alchemy_error
+    async def upload_shop_point_images(
+        self,
+        session: AsyncSession,
+        shop_point_id: int,
+        files: list[UploadFile],
+        start_order: int = 0
+    ) -> list[schemas.ShopPointImage]:
+        """Upload multiple images for shop point"""
+        return await self.image_manager.upload_multiple_and_create_image_records(
+            session=session,
+            entity_id=shop_point_id,
+            files=files,
+            prefix="shop-points",
+            start_order=start_order,
+            entity_name="shop point",
+            get_entity_func=self.service.get_shop_point_by_id,
+            create_image_func=self.service.create_shop_point_image,
+            schema_class=schemas.ShopPointImage
+        )
+
+    @handle_alchemy_error
+    async def delete_shop_point_image(
+        self,
+        session: AsyncSession,
+        image_id: int
+    ) -> None:
+        """Delete shop point image"""
+        await self.image_manager.delete_image_record(
+            session=session,
+            image_id=image_id,
+            entity_name="shop point",
+            get_image_func=self.service.get_shop_point_image_by_id,
+            delete_image_func=self.service.delete_shop_point_image
+        )

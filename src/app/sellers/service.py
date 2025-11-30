@@ -209,3 +209,35 @@ class SellersService:
             .order_by(Seller.full_name)
         )
         return result.scalars().all()
+
+    async def create_seller_image(
+        self, session: AsyncSession, seller_id: int, s3_path: str, order: int = 0
+    ) -> SellerImage:
+        """Create a new seller image"""
+        result = await session.execute(
+            insert(SellerImage)
+            .values(
+                seller_id=seller_id,
+                path=s3_path,
+                order=order
+            )
+            .returning(SellerImage)
+        )
+        return result.scalar_one()
+
+    async def get_seller_image_by_id(
+        self, session: AsyncSession, image_id: int
+    ) -> Optional[SellerImage]:
+        """Get seller image by ID"""
+        result = await session.execute(
+            select(SellerImage).where(SellerImage.id == image_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_seller_image(
+        self, session: AsyncSession, image_id: int
+    ) -> None:
+        """Delete seller image"""
+        await session.execute(
+            delete(SellerImage).where(SellerImage.id == image_id)
+        )

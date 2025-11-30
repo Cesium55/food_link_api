@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.products import schemas
 from app.products.manager import ProductsManager
 from utils.auth_dependencies import get_current_user
@@ -168,3 +168,41 @@ async def delete_product_attribute(request: Request, attribute_id: int) -> None:
     Delete product attribute
     """
     await products_manager.delete_product_attribute(request.state.session, attribute_id)
+
+
+@router.post("/{product_id}/images", response_model=schemas.ProductImage, status_code=201)
+async def upload_product_image(
+    request: Request,
+    product_id: int,
+    file: UploadFile = File(...),
+    order: int = Query(default=0, ge=0)
+) -> schemas.ProductImage:
+    """
+    Upload an image for a product
+    """
+    return await products_manager.upload_product_image(
+        request.state.session, product_id, file, order
+    )
+
+
+@router.post("/{product_id}/images/batch", response_model=List[schemas.ProductImage], status_code=201)
+async def upload_product_images(
+    request: Request,
+    product_id: int,
+    files: List[UploadFile] = File(...),
+    start_order: int = Query(default=0, ge=0)
+) -> List[schemas.ProductImage]:
+    """
+    Upload multiple images for a product
+    """
+    return await products_manager.upload_product_images(
+        request.state.session, product_id, files, start_order
+    )
+
+
+@router.delete("/images/{image_id}", status_code=204)
+async def delete_product_image(request: Request, image_id: int) -> None:
+    """
+    Delete a product image
+    """
+    await products_manager.delete_product_image(request.state.session, image_id)

@@ -319,3 +319,35 @@ class ProductsService:
         await session.execute(
             delete(ProductAttribute).where(ProductAttribute.id == attribute_id)
         )
+
+    async def create_product_image(
+        self, session: AsyncSession, product_id: int, s3_path: str, order: int = 0
+    ) -> ProductImage:
+        """Create a new product image"""
+        result = await session.execute(
+            insert(ProductImage)
+            .values(
+                product_id=product_id,
+                path=s3_path,
+                order=order
+            )
+            .returning(ProductImage)
+        )
+        return result.scalar_one()
+
+    async def get_product_image_by_id(
+        self, session: AsyncSession, image_id: int
+    ) -> Optional[ProductImage]:
+        """Get product image by ID"""
+        result = await session.execute(
+            select(ProductImage).where(ProductImage.id == image_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_product_image(
+        self, session: AsyncSession, image_id: int
+    ) -> None:
+        """Delete product image"""
+        await session.execute(
+            delete(ProductImage).where(ProductImage.id == image_id)
+        )

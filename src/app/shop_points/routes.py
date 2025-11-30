@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.shop_points import schemas
 from app.shop_points.manager import ShopPointsManager
 from utils.auth_dependencies import get_current_user
@@ -105,3 +105,41 @@ async def create_shop_point_by_address(
     return await shop_points_manager.create_shop_point_by_address(
         request.state.session, current_user.id, shop_point_data
     )
+
+
+@router.post("/{shop_point_id}/images", response_model=schemas.ShopPointImage, status_code=201)
+async def upload_shop_point_image(
+    request: Request,
+    shop_point_id: int,
+    file: UploadFile = File(...),
+    order: int = Query(default=0, ge=0)
+) -> schemas.ShopPointImage:
+    """
+    Upload an image for a shop point
+    """
+    return await shop_points_manager.upload_shop_point_image(
+        request.state.session, shop_point_id, file, order
+    )
+
+
+@router.post("/{shop_point_id}/images/batch", response_model=List[schemas.ShopPointImage], status_code=201)
+async def upload_shop_point_images(
+    request: Request,
+    shop_point_id: int,
+    files: List[UploadFile] = File(...),
+    start_order: int = Query(default=0, ge=0)
+) -> List[schemas.ShopPointImage]:
+    """
+    Upload multiple images for a shop point
+    """
+    return await shop_points_manager.upload_shop_point_images(
+        request.state.session, shop_point_id, files, start_order
+    )
+
+
+@router.delete("/images/{image_id}", status_code=204)
+async def delete_shop_point_image(request: Request, image_id: int) -> None:
+    """
+    Delete a shop point image
+    """
+    await shop_points_manager.delete_shop_point_image(request.state.session, image_id)

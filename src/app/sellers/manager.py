@@ -13,6 +13,8 @@ from app.auth.password_utils import PasswordUtils
 from utils.errors_handler import handle_alchemy_error
 from app.sellers.models import Seller
 from app.auth.service import AuthService
+from utils.image_manager import ImageManager
+from fastapi import UploadFile
 
 
 class SellersManager:
@@ -24,6 +26,7 @@ class SellersManager:
         self.products_service = ProductsService()
         self.password_utils = PasswordUtils()
         self.auth_service = AuthService()
+        self.image_manager = ImageManager()
 
     @handle_alchemy_error
     async def create_seller(
@@ -176,3 +179,60 @@ class SellersManager:
         """Get sellers by list of IDs"""
         sellers = await self.service.get_sellers_by_ids(session, seller_ids)
         return [schemas.PublicSeller.model_validate(seller) for seller in sellers]
+
+    @handle_alchemy_error
+    async def upload_seller_image(
+        self,
+        session: AsyncSession,
+        seller_id: int,
+        file: UploadFile,
+        order: int = 0
+    ) -> schemas.SellerImage:
+        """Upload image for seller"""
+        return await self.image_manager.upload_and_create_image_record(
+            session=session,
+            entity_id=seller_id,
+            file=file,
+            prefix="sellers",
+            order=order,
+            entity_name="seller",
+            get_entity_func=self.service.get_seller_by_id,
+            create_image_func=self.service.create_seller_image,
+            schema_class=schemas.SellerImage
+        )
+
+    @handle_alchemy_error
+    async def upload_seller_images(
+        self,
+        session: AsyncSession,
+        seller_id: int,
+        files: list[UploadFile],
+        start_order: int = 0
+    ) -> list[schemas.SellerImage]:
+        """Upload multiple images for seller"""
+        return await self.image_manager.upload_multiple_and_create_image_records(
+            session=session,
+            entity_id=seller_id,
+            files=files,
+            prefix="sellers",
+            start_order=start_order,
+            entity_name="seller",
+            get_entity_func=self.service.get_seller_by_id,
+            create_image_func=self.service.create_seller_image,
+            schema_class=schemas.SellerImage
+        )
+
+    @handle_alchemy_error
+    async def delete_seller_image(
+        self,
+        session: AsyncSession,
+        image_id: int
+    ) -> None:
+        """Delete seller image"""
+        await self.image_manager.delete_image_record(
+            session=session,
+            image_id=image_id,
+            entity_name="seller",
+            get_image_func=self.service.get_seller_image_by_id,
+            delete_image_func=self.service.delete_seller_image
+        )
