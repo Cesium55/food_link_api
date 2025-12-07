@@ -13,13 +13,22 @@ class AuthService:
     def __init__(self):
         self.password_utils = PasswordUtils()
     
-    async def create_user(self, session: AsyncSession, email: str, password_hash: str) -> User:
+    async def create_user(
+        self, 
+        session: AsyncSession, 
+        email: Optional[str] = None,
+        phone: Optional[str] = None,
+        password_hash: str = ""
+    ) -> User:
         """Create a new user in database"""
+        values = {"password_hash": password_hash}
+        if email:
+            values["email"] = email
+        if phone:
+            values["phone"] = phone
+        
         result = await session.execute(
-            insert(User).values(
-                email=email,
-                password_hash=password_hash
-            ).returning(User)
+            insert(User).values(**values).returning(User)
         )
         return result.scalar_one()
     
@@ -36,6 +45,20 @@ class AuthService:
             select(User).where(User.email == email)
         )
         return result.scalar_one_or_none()
+    
+    async def get_user_by_phone(self, session: AsyncSession, phone: str) -> Optional[User]:
+        """Get user by phone"""
+        result = await session.execute(
+            select(User).where(User.phone == phone)
+        )
+        return result.scalar_one_or_none()
+    
+    async def update_user_phone_verified(self, session: AsyncSession, user_id: int, phone_verified: bool) -> User:
+        """Update user phone_verified field"""
+        result = await session.execute(
+            update(User).where(User.id == user_id).values(phone_verified=phone_verified).returning(User)
+        )
+        return result.scalar_one()
     
     async def verify_user_password(self, password: str, password_hash: str) -> bool:
         """Verify user password"""
@@ -79,3 +102,16 @@ class AuthService:
             update(User).where(User.id == user_id).values(is_seller=is_seller).returning(User)
         )
         return result.scalar_one()
+    
+    async def delete_user(self, session: AsyncSession, user_id: int) -> bool:
+        """Delete user by ID and all associated refresh tokens"""
+        # Delete all refresh tokens for this user
+        await session.execute(
+            delete(RefreshToken).where(RefreshToken.user_id == user_id)
+        )
+        
+        # Delete user
+        result = await session.execute(
+            delete(User).where(User.id == user_id)
+        )
+        return result.rowcount > 0

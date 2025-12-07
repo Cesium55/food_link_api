@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     celery_broker_url: Optional[str] = None
     celery_result_backend: Optional[str] = None
     
+    # Настройки Redis
+    redis_url: Optional[str] = None
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+    
     # Настройки истечения покупок
     purchase_expiration_seconds: int = 30  # Время истечения покупки в секундах
     
@@ -60,6 +66,15 @@ class Settings(BaseSettings):
     s3_secret_access_key: str = "minioadmin"
     s3_bucket_name: str = "food-link-images"
     s3_region_name: str = "us-east-1"
+    
+    # Настройки Exolve SMS
+    exolve_api_key: Optional[str] = None
+    exolve_number: Optional[str] = None
+    exolve_api_url: str = "https://api.exolve.ru/messaging/v1/SendSMS"
+    
+    # Настройки аутентификации
+    auth_enable_email: bool = True
+    auth_enable_phone: bool = True
     
     class Config:
         env_file = ".env"

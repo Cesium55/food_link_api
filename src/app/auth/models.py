@@ -16,8 +16,9 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, unique=True)
+    phone_verified: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_seller: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

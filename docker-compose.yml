@@ -57,6 +57,14 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-food-link-images}
       S3_REGION_NAME: ${S3_REGION_NAME:-us-east-1}
+
+      EXOLVE_API_KEY: ${EXOLVE_API_KEY}
+      EXOLVE_NUMBER: ${EXOLVE_NUMBER}
+      
+      # Настройки аутентификации
+      AUTH_ENABLE_EMAIL: ${AUTH_ENABLE_EMAIL:-true}
+      AUTH_ENABLE_PHONE: ${AUTH_ENABLE_PHONE:-true}
+
     ports:
       - "${SERVER_PORT}:8000"
     networks:

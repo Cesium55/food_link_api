@@ -5,9 +5,23 @@ import asyncio
 from pydantic import BaseModel, Field
 from app.debug.init import initialize_categories_from_json_file
 from app.purchases.tasks import cancel_all_expired_purchases
+from app.auth.service import AuthService
 from config import settings
 
 router = APIRouter(prefix="/debug", tags=["debug"])
+auth_service = AuthService()
+
+
+class SendSMSRequest(BaseModel):
+    """Request model for sending SMS"""
+    destination: str = Field(..., description="Recipient phone number (will be formatted automatically)")
+    text: str = Field(..., min_length=1, description="Message text")
+
+
+class SendVerificationCodeRequest(BaseModel):
+    """Request model for sending verification code SMS"""
+    destination: str = Field(..., description="Recipient phone number (will be formatted automatically)")
+    code_length: int = Field(default=6, ge=4, le=10, description="Length of verification code (4-10 digits)")
 
 
 @router.post("/init-categories-from-file")
@@ -288,3 +302,175 @@ async def create_payment(request_body: CreatePaymentRequest) -> Dict[str, Any]:
                 status_code=500,
                 detail=error_details
             )
+
+
+@router.post("/send-sms")
+async def send_sms(request_body: SendSMSRequest) -> Dict[str, Any]:
+    """
+    Send SMS to specified phone number with given text.
+    
+    Requires settings in .env:
+    - EXOLVE_API_KEY
+    - EXOLVE_NUMBER
+    
+    Example request:
+    ```json
+    {
+        "destination": "79123456789",
+        "text": "Test message"
+    }
+    ```
+    """
+    # Check if Exolve settings are configured
+    if not settings.exolve_api_key or not settings.exolve_number:
+        raise HTTPException(
+            status_code=500,
+            detail="Exolve credentials not configured. Please set EXOLVE_API_KEY and EXOLVE_NUMBER in .env"
+        )
+    
+    try:
+        from utils.exolve_sms_manager import create_exolve_sms_manager
+        
+        async with create_exolve_sms_manager() as sms_manager:
+            result = await sms_manager.send_sms(
+                destination=request_body.destination,
+                text=request_body.text
+            )
+            
+            return {
+                "success": True,
+                "message": "SMS sent successfully",
+                "result": result
+            }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        error_message = str(e)
+        error_type = type(e).__name__
+        
+        import traceback
+        error_details = {
+            "error": "Failed to send SMS",
+            "message": error_message,
+            "type": error_type
+        }
+        
+        if settings.debug:
+            error_details["traceback"] = traceback.format_exc()
+        
+        raise HTTPException(
+            status_code=500,
+            detail=error_details
+        )
+
+
+@router.post("/send-verification-code")
+async def send_verification_code(request_body: SendVerificationCodeRequest) -> Dict[str, Any]:
+    """
+    Send SMS with generated verification code and return the code.
+    
+    Requires settings in .env:
+    - EXOLVE_API_KEY
+    - EXOLVE_NUMBER
+    
+    Example request:
+    ```json
+    {
+        "destination": "79123456789",
+        "code_length": 6
+    }
+    ```
+    """
+    # Check if Exolve settings are configured
+    if not settings.exolve_api_key or not settings.exolve_number:
+        raise HTTPException(
+            status_code=500,
+            detail="Exolve credentials not configured. Please set EXOLVE_API_KEY and EXOLVE_NUMBER in .env"
+        )
+    
+    try:
+        from utils.exolve_sms_manager import create_exolve_sms_manager
+        
+        async with create_exolve_sms_manager() as sms_manager:
+            code = await sms_manager.send_verification_code(
+                destination=request_body.destination,
+                code_length=request_body.code_length
+            )
+            
+            return {
+                "success": True,
+                "message": "Verification code SMS sent successfully",
+                "code": code,
+                "destination": request_body.destination,
+                "code_length": request_body.code_length
+            }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        error_message = str(e)
+        error_type = type(e).__name__
+        
+        import traceback
+        error_details = {
+            "error": "Failed to send verification code SMS",
+            "message": error_message,
+            "type": error_type
+        }
+        
+        if settings.debug:
+            error_details["traceback"] = traceback.format_exc()
+        
+        raise HTTPException(
+            status_code=500,
+            detail=error_details
+        )
+
+
+@router.delete("/user/{user_id}")
+async def delete_user(request: Request, user_id: int) -> Dict[str, Any]:
+    """
+    Delete user by ID.
+    
+    This is a debug endpoint for testing purposes.
+    """
+    try:
+        deleted = await auth_service.delete_user(request.state.session, user_id)
+        
+        if not deleted:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User with ID {user_id} not found"
+            )
+        
+        await request.state.session.commit()
+        
+        return {
+            "success": True,
+            "message": f"User with ID {user_id} deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_message = str(e)
+        error_type = type(e).__name__
+        
+        import traceback
+        error_details = {
+            "error": "Failed to delete user",
+            "message": error_message,
+            "type": error_type
+        }
+        
+        if settings.debug:
+            error_details["traceback"] = traceback.format_exc()
+        
+        raise HTTPException(
+            status_code=500,
+            detail=error_details
+        )

@@ -43,6 +43,8 @@ class JWTUtils:
         payload = {
             "user_id": user.id,
             "email": user.email,
+            "phone": user.phone,
+            "phone_verified": user.phone_verified,
             "is_seller": user.is_seller,
             "type": "access",
             "exp": datetime.now(timezone.utc) + timedelta(minutes=self.access_token_expire_minutes)

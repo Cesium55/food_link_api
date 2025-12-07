@@ -7,6 +7,12 @@ from app.auth.jwt_utils import JWTUtils
 from app.auth.models import User
 from app.auth import schemas
 from utils.errors_handler import handle_alchemy_error
+from utils.exolve_sms_manager import create_exolve_sms_manager
+from utils.redis.verification_codes import store_verification_code, verify_code, _format_phone_number
+from config import settings
+from logger import get_sync_logger
+
+logger = get_sync_logger(__name__)
 
 # Common exceptions
 INVALID_CREDENTIALS = HTTPException(
@@ -17,6 +23,16 @@ INVALID_CREDENTIALS = HTTPException(
 INVALID_REFRESH_TOKEN = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Invalid or expired refresh token"
+)
+
+EMAIL_AUTH_DISABLED = HTTPException(
+    status_code=status.HTTP_403_FORBIDDEN,
+    detail="Email authentication is disabled"
+)
+
+PHONE_AUTH_DISABLED = HTTPException(
+    status_code=status.HTTP_403_FORBIDDEN,
+    detail="Phone authentication is disabled"
 )
 
 
@@ -40,14 +56,74 @@ class AuthManager:
             access_token=access_token,
             refresh_token=str(refresh_token_record.token)
         )
+    def _format_phone_number(self, phone: str) -> str:
+        """Format phone number to standard format"""
+        return _format_phone_number(phone)
+    
     @handle_alchemy_error
     async def register_user(self, session: AsyncSession, user_data: schemas.UserRegistration) -> schemas.TokenResponse:
         """Register a new user"""
+        # Check if email/phone auth is enabled
+        if user_data.email and not settings.auth_enable_email:
+            raise EMAIL_AUTH_DISABLED
+        if user_data.phone and not settings.auth_enable_phone:
+            raise PHONE_AUTH_DISABLED
+        
         # Hash password
         password_hash = self.service.password_utils.hash_password(user_data.password)
         
+        # Format phone if provided
+        phone = None
+        if user_data.phone:
+            phone = self._format_phone_number(user_data.phone)
+            # Check if phone already exists
+            existing_user = await self.service.get_user_by_phone(session, phone)
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="User with this phone number already exists"
+                )
+        
+        # Check if email already exists
+        if user_data.email:
+            existing_user = await self.service.get_user_by_email(session, user_data.email)
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="User with this email already exists"
+                )
+        
         # Create user
-        user = await self.service.create_user(session, user_data.email, password_hash)
+        user = await self.service.create_user(
+            session, 
+            email=user_data.email,
+            phone=phone,
+            password_hash=password_hash
+        )
+        
+        # If registration by phone, send verification code immediately
+        if phone:
+            try:
+                async with create_exolve_sms_manager() as sms_manager:
+                    code = await sms_manager.send_verification_code(phone)
+                
+                # Store code in Redis
+                await store_verification_code(phone, code, expire_seconds=300)
+                
+                logger.info(
+                    "Phone verification code sent during registration",
+                    extra={
+                        "phone": phone,
+                        "code": code,
+                        "user_id": user.id
+                    }
+                )
+            except Exception as e:
+                # Log error but don't fail registration
+                logger.error(
+                    f"Failed to send verification code during registration: {str(e)}",
+                    extra={"phone": phone, "user_id": user.id}
+                )
         
         # Create tokens
         tokens = await self._create_tokens_for_user(session, user)
@@ -58,8 +134,20 @@ class AuthManager:
     @handle_alchemy_error
     async def login_user(self, session: AsyncSession, login_data: schemas.UserLogin) -> schemas.TokenResponse:
         """Login user"""
-        # Find user by email
-        user = await self.service.get_user_by_email(session, login_data.email)
+        # Check if email/phone auth is enabled
+        if login_data.email and not settings.auth_enable_email:
+            raise EMAIL_AUTH_DISABLED
+        if login_data.phone and not settings.auth_enable_phone:
+            raise PHONE_AUTH_DISABLED
+        
+        # Find user by email or phone
+        user = None
+        if login_data.email:
+            user = await self.service.get_user_by_email(session, login_data.email)
+        elif login_data.phone:
+            formatted_phone = self._format_phone_number(login_data.phone)
+            user = await self.service.get_user_by_phone(session, formatted_phone)
+        
         if not user:
             raise INVALID_CREDENTIALS
         
@@ -105,8 +193,94 @@ class AuthManager:
         return {
             "id": user.id,
             "email": user.email,
+            "phone": user.phone,
+            "phone_verified": user.phone_verified,
             "is_seller": user.is_seller
         }
+    
+    @handle_alchemy_error
+    async def resend_phone_verification_code(self, session: AsyncSession, user_id: int) -> dict:
+        """Resend verification code to phone number (for existing users)"""
+        if not settings.auth_enable_phone:
+            raise PHONE_AUTH_DISABLED
+        
+        # Get user
+        user = await self.service.get_user(session, user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Check if user has phone
+        if not user.phone:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User does not have a phone number"
+            )
+        
+        formatted_phone = user.phone
+        
+        # Generate and send code
+        async with create_exolve_sms_manager() as sms_manager:
+            code = await sms_manager.send_verification_code(formatted_phone)
+        
+        # Store code in Redis
+        await store_verification_code(formatted_phone, code, expire_seconds=300)
+        
+        logger.info(
+            "Phone verification code resent",
+            extra={
+                "phone": formatted_phone,
+                "code": code,
+                "user_id": user.id
+            }
+        )
+        
+        return {
+            "message": "Verification code sent successfully",
+            "phone": formatted_phone
+        }
+    
+    @handle_alchemy_error
+    async def verify_phone_code(self, session: AsyncSession, code: str, user_id: int) -> schemas.TokenResponse:
+        """Verify phone code and update user phone_verified status"""
+        if not settings.auth_enable_phone:
+            raise PHONE_AUTH_DISABLED
+        
+        # Get user
+        user = await self.service.get_user(session, user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Check if user has phone
+        if not user.phone:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User does not have a phone number"
+            )
+        
+        formatted_phone = user.phone
+        
+        # Verify code
+        is_valid = await verify_code(formatted_phone, code)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired verification code"
+            )
+        
+        # Update phone_verified status
+        user = await self.service.update_user_phone_verified(session, user_id, True)
+        
+        # Create new tokens with updated phone_verified status
+        tokens = await self._create_tokens_for_user(session, user)
+        
+        await session.commit()
+        return tokens
     
     @handle_alchemy_error
     async def get_current_user_by_token(self, session: AsyncSession, token: str) -> User:

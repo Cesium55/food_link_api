@@ -34,6 +34,38 @@ async def refresh_tokens(
     return await auth_manager.refresh_tokens(request.state.session, refresh_data)
 
 
+@router.post("/resend-verification-code")
+async def resend_phone_verification_code(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> dict:
+    """Resend verification code to phone number (for authenticated users)"""
+    token = credentials.credentials
+    user = await auth_manager.get_current_user_by_token(request.state.session, token)
+    
+    return await auth_manager.resend_phone_verification_code(
+        request.state.session,
+        user.id
+    )
+
+
+@router.post("/verify-phone")
+async def verify_phone(
+    request: Request,
+    verify_data: schemas.VerifyPhoneRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> schemas.TokenResponse:
+    """Verify phone number with code and get new token with phone_verified=True"""
+    token = credentials.credentials
+    user = await auth_manager.get_current_user_by_token(request.state.session, token)
+    
+    return await auth_manager.verify_phone_code(
+        request.state.session,
+        verify_data.code,
+        user.id
+    )
+
+
 @router.post("", response_model=schemas.UserResponse, summary="Get current user", description="Get current user information by Bearer token")
 async def get_current_user(
     request: Request,
@@ -45,4 +77,12 @@ async def get_current_user(
     Use the 'Authorize' button in Swagger UI to set the token.
     """
     token = credentials.credentials
-    return await auth_manager.get_current_user_by_token(request.state.session, token)
+    user = await auth_manager.get_current_user_by_token(request.state.session, token)
+    
+    return {
+        "id": user.id,
+        "email": user.email,
+        "phone": user.phone,
+        "phone_verified": user.phone_verified,
+        "is_seller": user.is_seller
+    }
