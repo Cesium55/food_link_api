@@ -1,4 +1,5 @@
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
@@ -8,6 +9,7 @@ from app.products import schemas as products_schemas
 from app.products.service import ProductsService
 from app.shop_points.service import ShopPointsService
 from utils.errors_handler import handle_alchemy_error
+from utils.pagination import PaginatedResponse
 
 
 class OffersManager:
@@ -53,6 +55,37 @@ class OffersManager:
         """Get list of offers"""
         offers = await self.service.get_offers(session)
         return [schemas.Offer.model_validate(offer) for offer in offers]
+
+    async def get_offers_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        product_id: Optional[int] = None,
+        seller_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        min_expires_date: Optional[datetime] = None,
+        max_expires_date: Optional[datetime] = None,
+        min_original_cost: Optional[float] = None,
+        max_original_cost: Optional[float] = None,
+        min_current_cost: Optional[float] = None,
+        max_current_cost: Optional[float] = None,
+        min_count: Optional[int] = None
+    ) -> PaginatedResponse[schemas.Offer]:
+        """Get paginated list of offers with optional filters"""
+        offers, total_count = await self.service.get_offers_paginated(
+            session, page, page_size, product_id, seller_id, shop_id,
+            min_expires_date, max_expires_date,
+            min_original_cost, max_original_cost,
+            min_current_cost, max_current_cost,
+            min_count
+        )
+        offer_schemas = [
+            schemas.Offer.model_validate(offer) for offer in offers
+        ]
+        return PaginatedResponse.create(
+            items=offer_schemas,
+            page=page,
+            page_size=page_size,
+            total_items=total_count
+        )
 
     async def get_offers_with_products(
         self, session: AsyncSession

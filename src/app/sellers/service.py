@@ -91,6 +91,45 @@ class SellersService:
         )
         return result.scalars().all()
 
+    async def get_sellers_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        status: Optional[int] = None, verification_level: Optional[int] = None
+    ) -> tuple[List[Seller], int]:
+        """Get paginated list of sellers with total count and optional filters"""
+        # Build base query with filters
+        base_query = select(Seller)
+        
+        # Apply filters
+        conditions = []
+        if status is not None:
+            conditions.append(Seller.status == status)
+        if verification_level is not None:
+            conditions.append(Seller.verification_level == verification_level)
+        
+        if conditions:
+            base_query = base_query.where(and_(*conditions))
+        
+        # Get total count with filters
+        count_query = select(func.count(Seller.id))
+        if conditions:
+            count_query = count_query.where(and_(*conditions))
+        
+        count_result = await session.execute(count_query)
+        total_count = count_result.scalar() or 0
+
+        # Get paginated results with filters
+        offset = (page - 1) * page_size
+        result = await session.execute(
+            base_query
+            .options(selectinload(Seller.images))
+            .order_by(Seller.full_name)
+            .limit(page_size)
+            .offset(offset)
+        )
+        sellers = result.scalars().all()
+        
+        return sellers, total_count
+
     async def get_seller_with_shop_points(
         self, session: AsyncSession, seller_id: int
     ) -> Optional[Seller]:

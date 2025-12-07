@@ -1,9 +1,10 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.shop_points import schemas
 from app.shop_points.manager import ShopPointsManager
 from utils.auth_dependencies import get_current_user
 from app.auth.models import User
+from utils.pagination import PaginatedResponse
 
 router = APIRouter(prefix="/shop-points", tags=["shop-points"])
 
@@ -21,12 +22,26 @@ async def create_shop_point(
     return await shop_points_manager.create_shop_point(request.state.session, shop_point_data)
 
 
-@router.get("", response_model=List[schemas.ShopPoint])
-async def get_shop_points(request: Request) -> List[schemas.ShopPoint]:
+@router.get("", response_model=PaginatedResponse[schemas.ShopPoint])
+async def get_shop_points(
+    request: Request,
+    page: int = Query(default=1, ge=1, description="Page number (starts from 1)"),
+    page_size: int = Query(default=20, ge=1, description="Number of items per page"),
+    region: Optional[str] = Query(default=None, description="Filter by region"),
+    city: Optional[str] = Query(default=None, description="Filter by city"),
+    seller_id: Optional[int] = Query(default=None, ge=1, description="Filter by seller ID"),
+    min_latitude: Optional[float] = Query(default=None, description="Minimum latitude"),
+    max_latitude: Optional[float] = Query(default=None, description="Maximum latitude"),
+    min_longitude: Optional[float] = Query(default=None, description="Minimum longitude"),
+    max_longitude: Optional[float] = Query(default=None, description="Maximum longitude")
+) -> PaginatedResponse[schemas.ShopPoint]:
     """
-    Get list of shop points
+    Get paginated list of shop points with optional filters
     """
-    return await shop_points_manager.get_shop_points(request.state.session)
+    return await shop_points_manager.get_shop_points_paginated(
+        request.state.session, page, page_size, region, city, seller_id,
+        min_latitude, max_latitude, min_longitude, max_longitude
+    )
 
 
 @router.get("/{shop_point_id}", response_model=schemas.ShopPoint)

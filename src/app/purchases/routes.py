@@ -1,10 +1,12 @@
-from typing import List
-from fastapi import APIRouter, Request, Depends, HTTPException, status
+from typing import List, Optional
+from datetime import datetime
+from fastapi import APIRouter, Request, Depends, HTTPException, status, Query
 from app.purchases import schemas
 from app.purchases.manager import PurchasesManager
 from utils.auth_dependencies import get_current_user
 from app.auth.models import User
 from utils.response_logger import log_response
+from utils.pagination import PaginatedResponse
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
@@ -49,16 +51,29 @@ async def create_purchase_with_partial_success(
     return result.purchase
 
 
-@router.get("", response_model=List[schemas.Purchase])
+@router.get("", response_model=PaginatedResponse[schemas.Purchase])
 async def get_my_purchases(
     request: Request,
-    current_user: User = Depends(get_current_user)
-) -> List[schemas.Purchase]:
+    current_user: User = Depends(get_current_user),
+    page: int = Query(default=1, ge=1, description="Page number (starts from 1)"),
+    page_size: int = Query(default=20, ge=1, description="Number of items per page"),
+    status: Optional[str] = Query(default=None, description="Filter by purchase status"),
+    user_id: Optional[int] = Query(default=None, ge=1, description="Filter by user ID (defaults to current user)"),
+    min_created_at: Optional[datetime] = Query(default=None, description="Minimum creation date"),
+    max_created_at: Optional[datetime] = Query(default=None, description="Maximum creation date"),
+    min_updated_at: Optional[datetime] = Query(default=None, description="Minimum update date"),
+    max_updated_at: Optional[datetime] = Query(default=None, description="Maximum update date")
+) -> PaginatedResponse[schemas.Purchase]:
     """
-    Get current user's purchases
+    Get paginated list of purchases with optional filters.
+    If user_id is not specified, filters by current user's purchases.
     """
-    return await purchases_manager.get_purchases_by_user(
-        request.state.session, current_user.id
+    # If user_id is not specified, use current user's ID
+    filter_user_id = user_id if user_id is not None else current_user.id
+    
+    return await purchases_manager.get_purchases_paginated(
+        request.state.session, page, page_size, status, filter_user_id,
+        min_created_at, max_created_at, min_updated_at, max_updated_at
     )
 
 

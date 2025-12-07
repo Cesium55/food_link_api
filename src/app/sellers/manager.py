@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 from sqlalchemy import update
@@ -15,6 +15,7 @@ from app.sellers.models import Seller
 from app.auth.service import AuthService
 from utils.image_manager import ImageManager
 from fastapi import UploadFile
+from utils.pagination import PaginatedResponse
 
 
 class SellersManager:
@@ -60,6 +61,24 @@ class SellersManager:
         """Get list of sellers"""
         sellers = await self.service.get_sellers(session)
         return [schemas.PublicSeller.model_validate(seller) for seller in sellers]
+
+    async def get_sellers_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        status: Optional[int] = None, verification_level: Optional[int] = None
+    ) -> PaginatedResponse[schemas.PublicSeller]:
+        """Get paginated list of sellers with optional filters"""
+        sellers, total_count = await self.service.get_sellers_paginated(
+            session, page, page_size, status, verification_level
+        )
+        seller_schemas = [
+            schemas.PublicSeller.model_validate(seller) for seller in sellers
+        ]
+        return PaginatedResponse.create(
+            items=seller_schemas,
+            page=page,
+            page_size=page_size,
+            total_items=total_count
+        )
 
     async def get_seller_by_id(
         self, session: AsyncSession, seller_id: int

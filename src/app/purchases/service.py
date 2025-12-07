@@ -1,6 +1,7 @@
 from typing import Optional, List
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert, update, delete, and_
+from sqlalchemy import select, insert, update, delete, and_, func
 from sqlalchemy.orm import selectinload
 
 from app.purchases.models import Purchase, PurchaseOffer, PurchaseOfferResult
@@ -89,6 +90,57 @@ class PurchasesService:
             .order_by(Purchase.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def get_purchases_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        status: Optional[str] = None,
+        user_id: Optional[int] = None,
+        min_created_at: Optional[datetime] = None,
+        max_created_at: Optional[datetime] = None,
+        min_updated_at: Optional[datetime] = None,
+        max_updated_at: Optional[datetime] = None
+    ) -> tuple[List[Purchase], int]:
+        """Get paginated list of purchases with optional filters"""
+        # Build base query with filters
+        base_query = select(Purchase)
+        
+        # Apply filters
+        conditions = []
+        if status is not None:
+            conditions.append(Purchase.status == status)
+        if user_id is not None:
+            conditions.append(Purchase.user_id == user_id)
+        if min_created_at is not None:
+            conditions.append(Purchase.created_at >= min_created_at)
+        if max_created_at is not None:
+            conditions.append(Purchase.created_at <= max_created_at)
+        if min_updated_at is not None:
+            conditions.append(Purchase.updated_at >= min_updated_at)
+        if max_updated_at is not None:
+            conditions.append(Purchase.updated_at <= max_updated_at)
+        
+        if conditions:
+            base_query = base_query.where(and_(*conditions))
+        
+        # Get total count with filters
+        count_query = select(func.count(Purchase.id))
+        if conditions:
+            count_query = count_query.where(and_(*conditions))
+        
+        count_result = await session.execute(count_query)
+        total_count = count_result.scalar() or 0
+
+        # Get paginated results with filters
+        offset = (page - 1) * page_size
+        result = await session.execute(
+            base_query
+            .order_by(Purchase.created_at.desc())
+            .limit(page_size)
+            .offset(offset)
+        )
+        purchases = result.scalars().all()
+        
+        return list(purchases), total_count
 
     async def get_pending_purchase_by_user(
         self, session: AsyncSession, user_id: int, for_update: bool = False

@@ -67,6 +67,52 @@ class ProductsService:
         )
         return result.scalars().all()
 
+    async def get_products_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        article: Optional[str] = None,
+        code: Optional[str] = None,
+        seller_id: Optional[int] = None
+    ) -> tuple[List[Product], int]:
+        """Get paginated list of products with optional filters"""
+        # Build base query with filters
+        base_query = select(Product)
+        
+        # Apply filters
+        conditions = []
+        if article is not None:
+            conditions.append(Product.article == article)
+        if code is not None:
+            conditions.append(Product.code == code)
+        if seller_id is not None:
+            conditions.append(Product.seller_id == seller_id)
+        
+        if conditions:
+            base_query = base_query.where(and_(*conditions))
+        
+        # Get total count with filters
+        count_query = select(func.count(Product.id))
+        if conditions:
+            count_query = count_query.where(and_(*conditions))
+        
+        count_result = await session.execute(count_query)
+        total_count = count_result.scalar() or 0
+
+        # Get paginated results with filters
+        offset = (page - 1) * page_size
+        result = await session.execute(
+            base_query
+            .options(
+                selectinload(Product.images),
+                selectinload(Product.attributes)
+            )
+            .order_by(Product.name)
+            .limit(page_size)
+            .offset(offset)
+        )
+        products = result.scalars().all()
+        
+        return products, total_count
+
     async def get_products_by_seller(
         self, session: AsyncSession, seller_id: int
     ) -> List[Product]:

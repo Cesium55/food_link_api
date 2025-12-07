@@ -24,4 +24,5 @@ dependencies = [
     "celery>=5.5.3",
     "yookassa>=3.8.0",
     "boto3>=1.41.5",
+    "firebase-admin>=7.1.0",
 ]

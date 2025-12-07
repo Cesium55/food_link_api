@@ -33,7 +33,19 @@ class ResponseWrapperMiddleware(BaseHTTPMiddleware):
                 
                 response_data = json.loads(body.decode())
                 
-                wrapped_data = {"data": response_data}
+                # Check if response contains pagination data
+                if isinstance(response_data, dict) and "pagination" in response_data and "items" in response_data:
+                    # Extract pagination and items separately
+                    pagination = response_data["pagination"]
+                    items = response_data["items"]
+                    
+                    wrapped_data = {
+                        "data": items,
+                        "pagination": pagination
+                    }
+                else:
+                    # Standard response wrapping
+                    wrapped_data = {"data": response_data}
                 
                 new_headers = dict(response.headers)
                 new_headers.pop("content-length", None)

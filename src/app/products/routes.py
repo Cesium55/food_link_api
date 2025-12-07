@@ -1,9 +1,10 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.products import schemas
 from app.products.manager import ProductsManager
 from utils.auth_dependencies import get_current_user
 from app.auth.models import User
+from utils.pagination import PaginatedResponse
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -24,12 +25,21 @@ async def create_product(
     return await products_manager.create_product(request.state.session, product_data, current_user)
 
 
-@router.get("", response_model=List[schemas.Product])
-async def get_products(request: Request) -> List[schemas.Product]:
+@router.get("", response_model=PaginatedResponse[schemas.Product])
+async def get_products(
+    request: Request,
+    page: int = Query(default=1, ge=1, description="Page number (starts from 1)"),
+    page_size: int = Query(default=20, ge=1, description="Number of items per page"),
+    article: Optional[str] = Query(default=None, description="Filter by article"),
+    code: Optional[str] = Query(default=None, description="Filter by code"),
+    seller_id: Optional[int] = Query(default=None, ge=1, description="Filter by seller ID")
+) -> PaginatedResponse[schemas.Product]:
     """
-    Get list of products
+    Get paginated list of products with optional filters
     """
-    return await products_manager.get_products(request.state.session)
+    return await products_manager.get_products_paginated(
+        request.state.session, page, page_size, article, code, seller_id
+    )
 
 
 @router.get("/{product_id}", response_model=schemas.Product)

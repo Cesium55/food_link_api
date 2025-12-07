@@ -1,7 +1,9 @@
-from typing import List
-from fastapi import APIRouter, Request
+from typing import List, Optional
+from datetime import datetime
+from fastapi import APIRouter, Request, Query
 from app.offers import schemas
 from app.offers.manager import OffersManager
+from utils.pagination import PaginatedResponse
 
 router = APIRouter(prefix="/offers", tags=["offers"])
 
@@ -20,12 +22,32 @@ async def create_offer(
     return await offers_manager.create_offer(request.state.session, offer_data)
 
 
-@router.get("", response_model=List[schemas.Offer])
-async def get_offers(request: Request) -> List[schemas.Offer]:
+@router.get("", response_model=PaginatedResponse[schemas.Offer])
+async def get_offers(
+    request: Request,
+    page: int = Query(default=1, ge=1, description="Page number (starts from 1)"),
+    page_size: int = Query(default=20, ge=1, description="Number of items per page"),
+    product_id: Optional[int] = Query(default=None, ge=1, description="Filter by product ID"),
+    seller_id: Optional[int] = Query(default=None, ge=1, description="Filter by seller ID"),
+    shop_id: Optional[int] = Query(default=None, ge=1, description="Filter by shop point ID"),
+    min_expires_date: Optional[datetime] = Query(default=None, description="Minimum expiration date"),
+    max_expires_date: Optional[datetime] = Query(default=None, description="Maximum expiration date"),
+    min_original_cost: Optional[float] = Query(default=None, ge=0, description="Minimum original cost"),
+    max_original_cost: Optional[float] = Query(default=None, ge=0, description="Maximum original cost"),
+    min_current_cost: Optional[float] = Query(default=None, ge=0, description="Minimum current cost"),
+    max_current_cost: Optional[float] = Query(default=None, ge=0, description="Maximum current cost"),
+    min_count: Optional[int] = Query(default=None, ge=0, description="Minimum product count")
+) -> PaginatedResponse[schemas.Offer]:
     """
-    Get list of offers
+    Get paginated list of offers with optional filters
     """
-    return await offers_manager.get_offers(request.state.session)
+    return await offers_manager.get_offers_paginated(
+        request.state.session, page, page_size, product_id, seller_id, shop_id,
+        min_expires_date, max_expires_date,
+        min_original_cost, max_original_cost,
+        min_current_cost, max_current_cost,
+        min_count
+    )
 
 
 @router.get("/with-products", response_model=List[schemas.OfferWithProduct])

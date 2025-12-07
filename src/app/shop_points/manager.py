@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
@@ -10,6 +10,7 @@ from app.maps.yandex_geocoder import create_geocoder
 from utils.errors_handler import handle_alchemy_error
 from utils.image_manager import ImageManager
 from fastapi import UploadFile
+from utils.pagination import PaginatedResponse
 
 
 class ShopPointsManager:
@@ -35,6 +36,31 @@ class ShopPointsManager:
         """Get list of shop points"""
         shop_points = await self.service.get_shop_points(session)
         return [schemas.ShopPoint.model_validate(shop_point) for shop_point in shop_points]
+
+    async def get_shop_points_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        region: Optional[str] = None,
+        city: Optional[str] = None,
+        seller_id: Optional[int] = None,
+        min_latitude: Optional[float] = None,
+        max_latitude: Optional[float] = None,
+        min_longitude: Optional[float] = None,
+        max_longitude: Optional[float] = None
+    ) -> PaginatedResponse[schemas.ShopPoint]:
+        """Get paginated list of shop points with optional filters"""
+        shop_points, total_count = await self.service.get_shop_points_paginated(
+            session, page, page_size, region, city, seller_id,
+            min_latitude, max_latitude, min_longitude, max_longitude
+        )
+        shop_point_schemas = [
+            schemas.ShopPoint.model_validate(shop_point) for shop_point in shop_points
+        ]
+        return PaginatedResponse.create(
+            items=shop_point_schemas,
+            page=page,
+            page_size=page_size,
+            total_items=total_count
+        )
 
     async def get_shop_point_by_id(self, session: AsyncSession, shop_point_id: int) -> schemas.ShopPoint:
         """Get shop point by ID"""

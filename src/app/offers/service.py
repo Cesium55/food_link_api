@@ -1,6 +1,7 @@
 from typing import Optional, List
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, update, insert, func
+from sqlalchemy import select, delete, update, insert, func, and_
 from sqlalchemy.orm import selectinload
 
 from app.offers import schemas
@@ -62,6 +63,75 @@ class OffersService:
             .order_by(Offer.id)
         )
         return result.scalars().all()
+
+    async def get_offers_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        product_id: Optional[int] = None,
+        seller_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        min_expires_date: Optional[datetime] = None,
+        max_expires_date: Optional[datetime] = None,
+        min_original_cost: Optional[float] = None,
+        max_original_cost: Optional[float] = None,
+        min_current_cost: Optional[float] = None,
+        max_current_cost: Optional[float] = None,
+        min_count: Optional[int] = None
+    ) -> tuple[List[Offer], int]:
+        """Get paginated list of offers with optional filters"""
+        # Build base query with filters
+        base_query = select(Offer)
+        
+        # Join with Product if seller_id filter is needed
+        if seller_id is not None:
+            base_query = base_query.join(Product, Offer.product_id == Product.id)
+        
+        # Apply filters
+        conditions = []
+        if product_id is not None:
+            conditions.append(Offer.product_id == product_id)
+        if seller_id is not None:
+            conditions.append(Product.seller_id == seller_id)
+        if shop_id is not None:
+            conditions.append(Offer.shop_id == shop_id)
+        if min_expires_date is not None:
+            conditions.append(Offer.expires_date >= min_expires_date)
+        if max_expires_date is not None:
+            conditions.append(Offer.expires_date <= max_expires_date)
+        if min_original_cost is not None:
+            conditions.append(Offer.original_cost >= min_original_cost)
+        if max_original_cost is not None:
+            conditions.append(Offer.original_cost <= max_original_cost)
+        if min_current_cost is not None:
+            conditions.append(Offer.current_cost >= min_current_cost)
+        if max_current_cost is not None:
+            conditions.append(Offer.current_cost <= max_current_cost)
+        if min_count is not None:
+            conditions.append(Offer.count >= min_count)
+        
+        if conditions:
+            base_query = base_query.where(and_(*conditions))
+        
+        # Get total count with filters
+        count_query = select(func.count(Offer.id))
+        if seller_id is not None:
+            count_query = count_query.join(Product, Offer.product_id == Product.id)
+        if conditions:
+            count_query = count_query.where(and_(*conditions))
+        
+        count_result = await session.execute(count_query)
+        total_count = count_result.scalar() or 0
+
+        # Get paginated results with filters
+        offset = (page - 1) * page_size
+        result = await session.execute(
+            base_query
+            .order_by(Offer.id)
+            .limit(page_size)
+            .offset(offset)
+        )
+        offers = result.scalars().all()
+        
+        return offers, total_count
 
     async def get_offers_with_products(
         self, session: AsyncSession

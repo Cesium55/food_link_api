@@ -1,9 +1,10 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.sellers import schemas
 from app.sellers.manager import SellersManager
 from utils.auth_dependencies import get_current_user
 from app.auth.models import User
+from utils.pagination import PaginationParams, PaginatedResponse
 
 router = APIRouter(prefix="/sellers", tags=["sellers"])
 
@@ -32,12 +33,20 @@ async def get_my_seller(
     return await sellers_manager.get_seller_by_email(request.state.session, current_user.email)
 
 
-@router.get("", response_model=List[schemas.PublicSeller])
-async def get_sellers(request: Request) -> List[schemas.PublicSeller]:
+@router.get("", response_model=PaginatedResponse[schemas.PublicSeller])
+async def get_sellers(
+    request: Request,
+    page: int = Query(default=1, ge=1, description="Page number (starts from 1)"),
+    page_size: int = Query(default=20, ge=1, description="Number of items per page"),
+    status: Optional[int] = Query(default=None, ge=0, description="Filter by seller status"),
+    verification_level: Optional[int] = Query(default=None, ge=0, description="Filter by verification level")
+) -> PaginatedResponse[schemas.PublicSeller]:
     """
-    Get list of sellers (public data only)
+    Get paginated list of sellers (public data only)
     """
-    return await sellers_manager.get_sellers(request.state.session)
+    return await sellers_manager.get_sellers_paginated(
+        request.state.session, page, page_size, status, verification_level
+    )
 
 
 @router.get("/{seller_id}", response_model=schemas.PublicSeller)

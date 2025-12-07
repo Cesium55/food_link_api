@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status, UploadFile
 
@@ -11,6 +11,7 @@ from app.product_categories.service import ProductCategoriesService
 from app.auth.models import User
 from utils.errors_handler import handle_alchemy_error
 from utils.image_manager import ImageManager
+from utils.pagination import PaginatedResponse
 
 
 class ProductsManager:
@@ -70,6 +71,30 @@ class ProductsManager:
             product_schema.category_ids = [cat.id for cat in categories]
             result.append(product_schema)
         return result
+
+    async def get_products_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        article: Optional[str] = None,
+        code: Optional[str] = None,
+        seller_id: Optional[int] = None
+    ) -> PaginatedResponse[schemas.Product]:
+        """Get paginated list of products with optional filters"""
+        products, total_count = await self.service.get_products_paginated(
+            session, page, page_size, article, code, seller_id
+        )
+        result = []
+        for product in products:
+            product_schema = schemas.Product.model_validate(product)
+            # Add category IDs
+            categories = await self.categories_service.get_categories_by_product(session, product.id)
+            product_schema.category_ids = [cat.id for cat in categories]
+            result.append(product_schema)
+        return PaginatedResponse.create(
+            items=result,
+            page=page,
+            page_size=page_size,
+            total_items=total_count
+        )
 
     async def get_product_by_id(self, session: AsyncSession, product_id: int) -> schemas.Product:
         """Get product by ID"""

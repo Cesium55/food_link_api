@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from fastapi import HTTPException, status
@@ -15,6 +15,7 @@ from app.purchases.tasks import check_purchase_expiration
 from config import settings
 from app.auth.jwt_utils import JWTUtils
 from app.payments.models import PaymentStatus
+from utils.pagination import PaginatedResponse
 
 
 class PurchasesManager:
@@ -405,6 +406,30 @@ class PurchasesManager:
         """Get purchases by user ID"""
         purchases = await self.service.get_purchases_by_user(session, user_id)
         return [schemas.Purchase.model_validate(purchase) for purchase in purchases]
+
+    async def get_purchases_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        status: Optional[str] = None,
+        user_id: Optional[int] = None,
+        min_created_at: Optional[datetime] = None,
+        max_created_at: Optional[datetime] = None,
+        min_updated_at: Optional[datetime] = None,
+        max_updated_at: Optional[datetime] = None
+    ) -> PaginatedResponse[schemas.Purchase]:
+        """Get paginated list of purchases with optional filters"""
+        purchases, total_count = await self.service.get_purchases_paginated(
+            session, page, page_size, status, user_id,
+            min_created_at, max_created_at, min_updated_at, max_updated_at
+        )
+        purchase_schemas = [
+            schemas.Purchase.model_validate(purchase) for purchase in purchases
+        ]
+        return PaginatedResponse.create(
+            items=purchase_schemas,
+            page=page,
+            page_size=page_size,
+            total_items=total_count
+        )
 
     @handle_alchemy_error
     async def update_purchase_status(

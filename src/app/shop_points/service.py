@@ -55,6 +55,61 @@ class ShopPointsService:
         )
         return result.scalars().all()
 
+    async def get_shop_points_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        region: Optional[str] = None,
+        city: Optional[str] = None,
+        seller_id: Optional[int] = None,
+        min_latitude: Optional[float] = None,
+        max_latitude: Optional[float] = None,
+        min_longitude: Optional[float] = None,
+        max_longitude: Optional[float] = None
+    ) -> tuple[List[ShopPoint], int]:
+        """Get paginated list of shop points with optional filters"""
+        # Build base query with filters
+        base_query = select(ShopPoint)
+        
+        # Apply filters
+        conditions = []
+        if region is not None:
+            conditions.append(ShopPoint.region == region)
+        if city is not None:
+            conditions.append(ShopPoint.city == city)
+        if seller_id is not None:
+            conditions.append(ShopPoint.seller_id == seller_id)
+        if min_latitude is not None:
+            conditions.append(ShopPoint.latitude >= min_latitude)
+        if max_latitude is not None:
+            conditions.append(ShopPoint.latitude <= max_latitude)
+        if min_longitude is not None:
+            conditions.append(ShopPoint.longitude >= min_longitude)
+        if max_longitude is not None:
+            conditions.append(ShopPoint.longitude <= max_longitude)
+        
+        if conditions:
+            base_query = base_query.where(and_(*conditions))
+        
+        # Get total count with filters
+        count_query = select(func.count(ShopPoint.id))
+        if conditions:
+            count_query = count_query.where(and_(*conditions))
+        
+        count_result = await session.execute(count_query)
+        total_count = count_result.scalar() or 0
+
+        # Get paginated results with filters
+        offset = (page - 1) * page_size
+        result = await session.execute(
+            base_query
+            .options(selectinload(ShopPoint.images))
+            .order_by(ShopPoint.id)
+            .limit(page_size)
+            .offset(offset)
+        )
+        shop_points = result.scalars().all()
+        
+        return shop_points, total_count
+
     async def get_shop_points_by_seller(
         self, session: AsyncSession, seller_id: int
     ) -> List[ShopPoint]:
