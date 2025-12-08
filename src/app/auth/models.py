@@ -1,6 +1,6 @@
 from models import Base
 from typing import Optional, List, TYPE_CHECKING
-from sqlalchemy import Column, Integer, String, Boolean, Text, TIMESTAMP
+from sqlalchemy import Column, Integer, String, Boolean, Text, TIMESTAMP, Double
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
@@ -21,6 +21,9 @@ class User(Base):
     phone_verified: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_seller: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    firebase_token: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    last_latitude: Mapped[Optional[float]] = mapped_column(Double, nullable=True, comment="Last known latitude coordinate of the user")
+    last_longitude: Mapped[Optional[float]] = mapped_column(Double, nullable=True, comment="Last known longitude coordinate of the user")
 
     purchases: Mapped[List["Purchase"]] = relationship(
         "Purchase", back_populates="user"

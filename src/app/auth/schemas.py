@@ -59,3 +59,14 @@ class UserResponse(BaseModel):
     phone: Optional[str]
     phone_verified: bool
     is_seller: bool
+
+
+class FirebaseTokenRequest(BaseModel):
+    """Schema for registering/updating Firebase token"""
+    token: str = Field(..., min_length=1, max_length=500, description="Firebase Cloud Messaging registration token")
+
+
+class UserLastLocationUpdate(BaseModel):
+    """Schema for updating user's last known location"""
+    latitude: float = Field(..., ge=-90.0, le=90.0, description="Last known latitude coordinate (-90 to 90)")
+    longitude: float = Field(..., ge=-180.0, le=180.0, description="Last known longitude coordinate (-180 to 180)")

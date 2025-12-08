@@ -57,41 +57,45 @@ class OffersManager:
         return [schemas.Offer.model_validate(offer) for offer in offers]
 
     async def get_offers_paginated(
-        self, session: AsyncSession, page: int, page_size: int,
-        product_id: Optional[int] = None,
-        seller_id: Optional[int] = None,
-        shop_id: Optional[int] = None,
-        min_expires_date: Optional[datetime] = None,
-        max_expires_date: Optional[datetime] = None,
-        min_original_cost: Optional[float] = None,
-        max_original_cost: Optional[float] = None,
-        min_current_cost: Optional[float] = None,
-        max_current_cost: Optional[float] = None,
-        min_count: Optional[int] = None
+        self, session: AsyncSession, filters: schemas.OffersFilterParams
     ) -> PaginatedResponse[schemas.Offer]:
         """Get paginated list of offers with optional filters"""
         offers, total_count = await self.service.get_offers_paginated(
-            session, page, page_size, product_id, seller_id, shop_id,
-            min_expires_date, max_expires_date,
-            min_original_cost, max_original_cost,
-            min_current_cost, max_current_cost,
-            min_count
+            session, filters.page, filters.page_size,
+            filters.product_id, filters.seller_id, filters.shop_id,
+            filters.min_expires_date, filters.max_expires_date,
+            filters.min_original_cost, filters.max_original_cost,
+            filters.min_current_cost, filters.max_current_cost,
+            filters.min_count,
+            filters.min_latitude, filters.max_latitude,
+            filters.min_longitude, filters.max_longitude
         )
         offer_schemas = [
             schemas.Offer.model_validate(offer) for offer in offers
         ]
         return PaginatedResponse.create(
             items=offer_schemas,
-            page=page,
-            page_size=page_size,
+            page=filters.page,
+            page_size=filters.page_size,
             total_items=total_count
         )
 
     async def get_offers_with_products(
-        self, session: AsyncSession
+        self,
+        session: AsyncSession,
+        filters: schemas.OffersFilterParams
     ) -> List[schemas.OfferWithProduct]:
-        """Get list of offers with product information"""
-        offers = await self.service.get_offers_with_products(session)
+        """Get list of offers with product information and optional filters"""
+        offers = await self.service.get_offers_with_products(
+            session,
+            filters.product_id, filters.seller_id, filters.shop_id,
+            filters.min_expires_date, filters.max_expires_date,
+            filters.min_original_cost, filters.max_original_cost,
+            filters.min_current_cost, filters.max_current_cost,
+            filters.min_count,
+            filters.min_latitude, filters.max_latitude,
+            filters.min_longitude, filters.max_longitude
+        )
         result = []
         for offer in offers:
             offer_schema = schemas.Offer.model_validate(offer)

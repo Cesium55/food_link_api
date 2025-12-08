@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, HTTPException
 from typing import Dict, Any, Optional
 import json
 import asyncio
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from app.debug.init import initialize_categories_from_json_file
 from app.purchases.tasks import cancel_all_expired_purchases
 from app.auth.service import AuthService
@@ -22,6 +22,22 @@ class SendVerificationCodeRequest(BaseModel):
     """Request model for sending verification code SMS"""
     destination: str = Field(..., description="Recipient phone number (will be formatted automatically)")
     code_length: int = Field(default=6, ge=4, le=10, description="Length of verification code (4-10 digits)")
+
+
+class SendFirebaseNotificationRequest(BaseModel):
+    """Request model for sending Firebase push notification"""
+    user_id: Optional[int] = Field(None, description="User ID to send notification to (will use user's firebase_token from DB)")
+    token: Optional[str] = Field(None, description="Firebase token to send notification to (if user_id not provided)")
+    title: str = Field(default="Test Notification", description="Notification title")
+    body: str = Field(default="This is a test notification from debug endpoint", description="Notification body text")
+    image_url: Optional[str] = Field(None, description="Optional image URL for rich notification")
+    
+    @model_validator(mode='after')
+    def validate_user_id_or_token(self):
+        """Validate that either user_id or token is provided"""
+        if not self.user_id and not self.token:
+            raise ValueError("Either user_id or token must be provided")
+        return self
 
 
 @router.post("/init-categories-from-file")
@@ -419,6 +435,90 @@ async def send_verification_code(request_body: SendVerificationCodeRequest) -> D
         import traceback
         error_details = {
             "error": "Failed to send verification code SMS",
+            "message": error_message,
+            "type": error_type
+        }
+        
+        if settings.debug:
+            error_details["traceback"] = traceback.format_exc()
+        
+        raise HTTPException(
+            status_code=500,
+            detail=error_details
+        )
+
+
+@router.post("/send-firebase-notification")
+async def send_firebase_notification(request: Request) -> Dict[str, Any]:
+    """
+    Send Firebase push notification to ALL users with active Firebase tokens.
+    
+    No parameters required - sends a test notification to everyone who has registered
+    their Firebase token. Useful for testing notification delivery.
+    """
+    try:
+        from utils.firebase_notification_manager import create_firebase_notification_manager
+        from app.auth.models import User
+        from sqlalchemy import select
+        
+        # Get all users with Firebase tokens directly from database
+        result = await request.state.session.execute(
+            select(User).where(
+                User.firebase_token.isnot(None),
+                User.firebase_token != ""
+            )
+        )
+        users = list(result.scalars().all())
+        
+        if not users:
+            return {
+                "success": True,
+                "message": "No users with Firebase tokens found",
+                "total_users": 0,
+                "sent_count": 0,
+                "failed_count": 0
+            }
+        
+        # Collect all tokens
+        tokens = [user.firebase_token for user in users if user.firebase_token]
+        
+        if not tokens:
+            return {
+                "success": True,
+                "message": "No valid Firebase tokens found",
+                "total_users": len(users),
+                "sent_count": 0,
+                "failed_count": 0
+            }
+        
+        # Send notification to all users using multicast
+        notification_manager = create_firebase_notification_manager()
+        response = await notification_manager.send_multicast_notification(
+            tokens=tokens,
+            title="Test Notification",
+            body="This is a test notification from debug endpoint"
+        )
+        
+        return {
+            "success": True,
+            "message": f"Notifications sent to {response.success_count} users",
+            "total_users": len(users),
+            "total_tokens": len(tokens),
+            "sent_count": response.success_count,
+            "failed_count": response.failure_count,
+            "details": {
+                "successful": response.success_count,
+                "failed": response.failure_count,
+                "total": len(tokens)
+            }
+        }
+    except Exception as e:
+        error_message = str(e)
+        error_type = type(e).__name__
+        
+        import traceback
+        error_details = {
+            "error": "Failed to send Firebase notifications",
             "message": error_message,
             "type": error_type
         }

@@ -115,3 +115,29 @@ class AuthService:
             delete(User).where(User.id == user_id)
         )
         return result.rowcount > 0
+    
+    async def update_user_firebase_token(self, session: AsyncSession, user_id: int, firebase_token: str) -> User:
+        """Update user firebase_token field"""
+        result = await session.execute(
+            update(User).where(User.id == user_id).values(firebase_token=firebase_token).returning(User)
+        )
+        return result.scalar_one()
+    
+    async def get_user_firebase_token(self, session: AsyncSession, user_id: int) -> Optional[str]:
+        """Get user firebase_token"""
+        result = await session.execute(
+            select(User.firebase_token).where(User.id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def update_user_last_location(
+        self, session: AsyncSession, user_id: int, latitude: float, longitude: float
+    ) -> User:
+        """Update user's last known location (latitude and longitude)"""
+        result = await session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(last_latitude=latitude, last_longitude=longitude)
+            .returning(User)
+        )
+        return result.scalar_one()

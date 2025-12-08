@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update, insert, func, and_
@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.offers import schemas
 from app.offers.models import Offer
 from app.products.models import Product
+from app.shop_points.models import ShopPoint
 
 
 class OffersService:
@@ -64,8 +65,8 @@ class OffersService:
         )
         return result.scalars().all()
 
-    async def get_offers_paginated(
-        self, session: AsyncSession, page: int, page_size: int,
+    def _build_offers_query_with_filters(
+        self,
         product_id: Optional[int] = None,
         seller_id: Optional[int] = None,
         shop_id: Optional[int] = None,
@@ -75,17 +76,30 @@ class OffersService:
         max_original_cost: Optional[float] = None,
         min_current_cost: Optional[float] = None,
         max_current_cost: Optional[float] = None,
-        min_count: Optional[int] = None
-    ) -> tuple[List[Offer], int]:
-        """Get paginated list of offers with optional filters"""
-        # Build base query with filters
+        min_count: Optional[int] = None,
+        min_latitude: Optional[float] = None,
+        max_latitude: Optional[float] = None,
+        min_longitude: Optional[float] = None,
+        max_longitude: Optional[float] = None
+    ) -> Tuple[select, List, bool, bool]:
+        """
+        Build offers query with filters.
+        Returns: (base_query, conditions, needs_product_join, needs_shop_join)
+        """
         base_query = select(Offer)
         
-        # Join with Product if seller_id filter is needed
-        if seller_id is not None:
+        needs_product_join = seller_id is not None
+        needs_shop_join = (
+            min_latitude is not None or max_latitude is not None or
+            min_longitude is not None or max_longitude is not None
+        )
+        
+        if needs_product_join:
             base_query = base_query.join(Product, Offer.product_id == Product.id)
         
-        # Apply filters
+        if needs_shop_join:
+            base_query = base_query.join(ShopPoint, Offer.shop_id == ShopPoint.id)
+        
         conditions = []
         if product_id is not None:
             conditions.append(Offer.product_id == product_id)
@@ -108,13 +122,57 @@ class OffersService:
         if min_count is not None:
             conditions.append(Offer.count >= min_count)
         
+        if needs_shop_join:
+            conditions.append(ShopPoint.latitude.isnot(None))
+            conditions.append(ShopPoint.longitude.isnot(None))
+            
+            if min_latitude is not None:
+                conditions.append(ShopPoint.latitude >= min_latitude)
+            if max_latitude is not None:
+                conditions.append(ShopPoint.latitude <= max_latitude)
+            if min_longitude is not None:
+                conditions.append(ShopPoint.longitude >= min_longitude)
+            if max_longitude is not None:
+                conditions.append(ShopPoint.longitude <= max_longitude)
+        
         if conditions:
             base_query = base_query.where(and_(*conditions))
         
+        return base_query, conditions, needs_product_join, needs_shop_join
+
+    async def get_offers_paginated(
+        self, session: AsyncSession, page: int, page_size: int,
+        product_id: Optional[int] = None,
+        seller_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        min_expires_date: Optional[datetime] = None,
+        max_expires_date: Optional[datetime] = None,
+        min_original_cost: Optional[float] = None,
+        max_original_cost: Optional[float] = None,
+        min_current_cost: Optional[float] = None,
+        max_current_cost: Optional[float] = None,
+        min_count: Optional[int] = None,
+        min_latitude: Optional[float] = None,
+        max_latitude: Optional[float] = None,
+        min_longitude: Optional[float] = None,
+        max_longitude: Optional[float] = None
+    ) -> tuple[List[Offer], int]:
+        """Get paginated list of offers with optional filters including location-based filtering"""
+        base_query, conditions, needs_product_join, needs_shop_join = self._build_offers_query_with_filters(
+            product_id, seller_id, shop_id,
+            min_expires_date, max_expires_date,
+            min_original_cost, max_original_cost,
+            min_current_cost, max_current_cost,
+            min_count,
+            min_latitude, max_latitude, min_longitude, max_longitude
+        )
+        
         # Get total count with filters
         count_query = select(func.count(Offer.id))
-        if seller_id is not None:
+        if needs_product_join:
             count_query = count_query.join(Product, Offer.product_id == Product.id)
+        if needs_shop_join:
+            count_query = count_query.join(ShopPoint, Offer.shop_id == ShopPoint.id)
         if conditions:
             count_query = count_query.where(and_(*conditions))
         
@@ -123,22 +181,43 @@ class OffersService:
 
         # Get paginated results with filters
         offset = (page - 1) * page_size
-        result = await session.execute(
-            base_query
-            .order_by(Offer.id)
-            .limit(page_size)
-            .offset(offset)
-        )
+        paginated_query = base_query.order_by(Offer.id).limit(page_size).offset(offset)
+        
+        result = await session.execute(paginated_query)
         offers = result.scalars().all()
         
         return offers, total_count
 
     async def get_offers_with_products(
-        self, session: AsyncSession
+        self,
+        session: AsyncSession,
+        product_id: Optional[int] = None,
+        seller_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        min_expires_date: Optional[datetime] = None,
+        max_expires_date: Optional[datetime] = None,
+        min_original_cost: Optional[float] = None,
+        max_original_cost: Optional[float] = None,
+        min_current_cost: Optional[float] = None,
+        max_current_cost: Optional[float] = None,
+        min_count: Optional[int] = None,
+        min_latitude: Optional[float] = None,
+        max_latitude: Optional[float] = None,
+        min_longitude: Optional[float] = None,
+        max_longitude: Optional[float] = None
     ) -> List[Offer]:
-        """Get list of all offers with product information"""
+        """Get list of offers with product information and optional filters"""
+        base_query, _, _, _ = self._build_offers_query_with_filters(
+            product_id, seller_id, shop_id,
+            min_expires_date, max_expires_date,
+            min_original_cost, max_original_cost,
+            min_current_cost, max_current_cost,
+            min_count,
+            min_latitude, max_latitude, min_longitude, max_longitude
+        )
+        
         result = await session.execute(
-            select(Offer)
+            base_query
             .options(
                 selectinload(Offer.product).selectinload(Product.images),
                 selectinload(Offer.product).selectinload(Product.attributes)

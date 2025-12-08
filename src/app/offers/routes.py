@@ -1,6 +1,6 @@
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, Request, Query, Depends
 from app.offers import schemas
 from app.offers.manager import OffersManager
 from utils.pagination import PaginatedResponse
@@ -25,37 +25,33 @@ async def create_offer(
 @router.get("", response_model=PaginatedResponse[schemas.Offer])
 async def get_offers(
     request: Request,
-    page: int = Query(default=1, ge=1, description="Page number (starts from 1)"),
-    page_size: int = Query(default=20, ge=1, description="Number of items per page"),
-    product_id: Optional[int] = Query(default=None, ge=1, description="Filter by product ID"),
-    seller_id: Optional[int] = Query(default=None, ge=1, description="Filter by seller ID"),
-    shop_id: Optional[int] = Query(default=None, ge=1, description="Filter by shop point ID"),
-    min_expires_date: Optional[datetime] = Query(default=None, description="Minimum expiration date"),
-    max_expires_date: Optional[datetime] = Query(default=None, description="Maximum expiration date"),
-    min_original_cost: Optional[float] = Query(default=None, ge=0, description="Minimum original cost"),
-    max_original_cost: Optional[float] = Query(default=None, ge=0, description="Maximum original cost"),
-    min_current_cost: Optional[float] = Query(default=None, ge=0, description="Minimum current cost"),
-    max_current_cost: Optional[float] = Query(default=None, ge=0, description="Maximum current cost"),
-    min_count: Optional[int] = Query(default=None, ge=0, description="Minimum product count")
+    filters: schemas.OffersFilterParams = Depends()
 ) -> PaginatedResponse[schemas.Offer]:
     """
-    Get paginated list of offers with optional filters
+    Get paginated list of offers with optional filters.
+    Location filters: min_latitude, max_latitude, min_longitude, max_longitude.
+    Filters offers by shop points within the specified latitude and longitude ranges.
     """
     return await offers_manager.get_offers_paginated(
-        request.state.session, page, page_size, product_id, seller_id, shop_id,
-        min_expires_date, max_expires_date,
-        min_original_cost, max_original_cost,
-        min_current_cost, max_current_cost,
-        min_count
+        request.state.session,
+        filters
     )
 
 
 @router.get("/with-products", response_model=List[schemas.OfferWithProduct])
-async def get_offers_with_products(request: Request) -> List[schemas.OfferWithProduct]:
+async def get_offers_with_products(
+    request: Request,
+    filters: schemas.OffersFilterParams = Depends()
+) -> List[schemas.OfferWithProduct]:
     """
-    Get list of offers with product information
+    Get list of offers with product information and optional filters.
+    Location filters: min_latitude, max_latitude, min_longitude, max_longitude.
+    Filters offers by shop points within the specified latitude and longitude ranges.
     """
-    return await offers_manager.get_offers_with_products(request.state.session)
+    return await offers_manager.get_offers_with_products(
+        request.state.session,
+        filters
+    )
 
 
 @router.get("/{offer_id}", response_model=schemas.Offer)

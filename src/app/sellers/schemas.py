@@ -196,6 +196,12 @@ class PublicSellerWithDetails(PublicSeller):
     )
 
 
+class SellerFirebaseTokenUpdate(BaseModel):
+    """Schema for updating seller firebase token"""
+
+    firebase_token: str = Field(..., min_length=1, max_length=500, description="Firebase FCM token")
+
+
 class SellerSummary(BaseModel):
     """Sellers summary schema"""
 

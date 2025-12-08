@@ -29,6 +29,7 @@ class Seller(Base):
     verification_level: Mapped[int] = mapped_column(Integer, nullable=False)
     registration_doc_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     balance: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    firebase_token: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     shop_points: Mapped[List["ShopPoint"]] = relationship(
         "ShopPoint", back_populates="seller"

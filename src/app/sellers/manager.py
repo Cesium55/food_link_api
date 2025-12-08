@@ -14,6 +14,7 @@ from utils.errors_handler import handle_alchemy_error
 from app.sellers.models import Seller
 from app.auth.service import AuthService
 from utils.image_manager import ImageManager
+from utils.firebase_notification_manager import FirebaseNotificationManager
 from fastapi import UploadFile
 from utils.pagination import PaginatedResponse
 
@@ -28,6 +29,7 @@ class SellersManager:
         self.password_utils = PasswordUtils()
         self.auth_service = AuthService()
         self.image_manager = ImageManager()
+        self.notification_manager = FirebaseNotificationManager()
 
     @handle_alchemy_error
     async def create_seller(
@@ -255,3 +257,68 @@ class SellersManager:
             get_image_func=self.service.get_seller_image_by_id,
             delete_image_func=self.service.delete_seller_image
         )
+
+    @handle_alchemy_error
+    async def update_seller_firebase_token(
+        self,
+        session: AsyncSession,
+        seller_id: int,
+        firebase_token: str
+    ) -> schemas.Seller:
+        """Update seller firebase_token"""
+        updated_seller = await self.service.update_seller_firebase_token(
+            session, seller_id, firebase_token
+        )
+        await session.commit()
+        return schemas.Seller.model_validate(updated_seller)
+
+    async def get_seller_firebase_token(
+        self,
+        session: AsyncSession,
+        seller_id: int
+    ) -> Optional[str]:
+        """Get seller firebase_token"""
+        return await self.service.get_seller_firebase_token(session, seller_id)
+
+    async def send_notification_to_seller(
+        self,
+        session: AsyncSession,
+        seller_id: int,
+        title: str,
+        body: str,
+        data: Optional[dict] = None
+    ) -> None:
+        """Send push notification to seller"""
+        from logger import get_sync_logger
+        logger = get_sync_logger(__name__)
+        
+        try:
+            seller = await self.service.get_seller_by_id(session, seller_id)
+            if not seller or not seller.firebase_token:
+                logger.info(
+                    "Skipping notification: seller not found or no firebase token",
+                    extra={"seller_id": seller_id}
+                )
+                return
+            
+            await self.notification_manager.send_notification(
+                token=seller.firebase_token,
+                title=title,
+                body=body,
+                data=data or {}
+            )
+            
+            logger.info(
+                "Notification sent to seller",
+                extra={"seller_id": seller_id, "title": title}
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to send notification to seller: {str(e)}",
+                extra={
+                    "seller_id": seller_id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            # Don't raise exception - notification failure shouldn't break business logic

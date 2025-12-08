@@ -280,3 +280,24 @@ class SellersService:
         await session.execute(
             delete(SellerImage).where(SellerImage.id == image_id)
         )
+
+    async def update_seller_firebase_token(
+        self, session: AsyncSession, seller_id: int, firebase_token: str
+    ) -> Seller:
+        """Update seller firebase_token field"""
+        result = await session.execute(
+            update(Seller)
+            .where(Seller.id == seller_id)
+            .values(firebase_token=firebase_token)
+            .returning(Seller)
+        )
+        return result.scalar_one()
+
+    async def get_seller_firebase_token(
+        self, session: AsyncSession, seller_id: int
+    ) -> Optional[str]:
+        """Get seller firebase_token"""
+        result = await session.execute(
+            select(Seller.firebase_token).where(Seller.id == seller_id)
+        )
+        return result.scalar_one_or_none()

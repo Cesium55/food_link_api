@@ -6,6 +6,7 @@ from app.auth.service import AuthService
 from app.auth.jwt_utils import JWTUtils
 from app.auth.models import User
 from app.auth import schemas
+from app.sellers.service import SellersService
 from utils.errors_handler import handle_alchemy_error
 from utils.exolve_sms_manager import create_exolve_sms_manager
 from utils.redis.verification_codes import store_verification_code, verify_code, _format_phone_number
@@ -42,6 +43,7 @@ class AuthManager:
     def __init__(self):
         self.service = AuthService()
         self.jwt_utils = JWTUtils()
+        self.sellers_service = SellersService()
 
     async def _create_tokens_for_user(self, session: AsyncSession, user: User) -> schemas.TokenResponse:
         """Create access and refresh tokens for user"""
@@ -304,3 +306,50 @@ class AuthManager:
             )
         
         return user
+    
+    @handle_alchemy_error
+    async def register_firebase_token(self, session: AsyncSession, user_id: int, firebase_token: str) -> dict:
+        """Register or update Firebase token for user and seller if user is seller"""
+        # Update user's firebase token
+        user = await self.service.update_user_firebase_token(session, user_id, firebase_token)
+        
+        # If user is seller, also update seller's firebase token
+        if user.is_seller:
+            seller = await self.sellers_service.get_seller_by_master_id(session, user_id)
+            if seller:
+                await self.sellers_service.update_seller_firebase_token(
+                    session, seller.id, firebase_token
+                )
+
+        
+        await session.commit()
+        
+        
+        return {
+            "message": "Firebase token registered successfully",
+            "user_id": user_id
+        }
+
+    @handle_alchemy_error
+    async def update_user_last_location(
+        self, session: AsyncSession, user_id: int, latitude: float, longitude: float
+    ) -> dict:
+        """Update user's last known location"""
+        user = await self.service.update_user_last_location(session, user_id, latitude, longitude)
+        await session.commit()
+        
+        logger.info(
+            "User last location updated",
+            extra={
+                "user_id": user_id,
+                "latitude": latitude,
+                "longitude": longitude
+            }
+        )
+        
+        return {
+            "message": "Last location updated successfully",
+            "user_id": user_id,
+            "latitude": latitude,
+            "longitude": longitude
+        }

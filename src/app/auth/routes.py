@@ -2,6 +2,8 @@ from fastapi import APIRouter, Request, HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.auth import schemas
 from app.auth.manager import AuthManager
+from app.auth.models import User
+from utils.auth_dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -86,3 +88,46 @@ async def get_current_user(
         "phone_verified": user.phone_verified,
         "is_seller": user.is_seller
     }
+
+
+@router.post("/firebase-token", summary="Register/Update Firebase token", description="Register or update Firebase Cloud Messaging token for push notifications")
+async def register_firebase_token(
+    request: Request,
+    token_data: schemas.FirebaseTokenRequest,
+    user: User = Depends(get_current_user)
+) -> dict:
+    """Register or update Firebase token for the current user
+    
+    This endpoint allows authenticated users to register their device's FCM token
+    for receiving push notifications. If a token already exists, it will be updated.
+    
+    Requires Bearer token in Authorization header.
+    """
+
+    return await auth_manager.register_firebase_token(
+        request.state.session,
+        user.get("id"),
+        token_data.token
+    )
+
+
+@router.put("/last-location", summary="Update last known location", description="Update current user's last known location coordinates")
+async def update_user_last_location(
+    request: Request,
+    location: schemas.UserLastLocationUpdate,
+    user: User = Depends(get_current_user)
+) -> dict:
+    """Update current user's last known location
+    
+    This endpoint allows authenticated users to update their last known location
+    (latitude and longitude coordinates). This location can be used for various
+    features like finding nearby shops, calculating delivery distances, etc.
+    
+    Requires Bearer token in Authorization header.
+    """
+    return await auth_manager.update_user_last_location(
+        request.state.session,
+        user.get("id"),
+        location.latitude,
+        location.longitude
+    )

@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 if TYPE_CHECKING:
     from app.products.schemas import Product
@@ -68,6 +68,37 @@ class ExpiringProductsSummary(BaseModel):
     expiring_soon: int = Field(..., description="Number of products expiring soon")
     expired: int = Field(..., description="Number of expired products")
     total_entries: int = Field(..., description="Total number of offers with expiration date")
+
+
+class OffersFilterParams(BaseModel):
+    """Schema for offers filter query parameters with validation"""
+    page: int = Field(default=1, ge=1, description="Page number (starts from 1)")
+    page_size: int = Field(default=20, ge=1, description="Number of items per page")
+    product_id: Optional[int] = Field(default=None, ge=1, description="Filter by product ID")
+    seller_id: Optional[int] = Field(default=None, ge=1, description="Filter by seller ID")
+    shop_id: Optional[int] = Field(default=None, ge=1, description="Filter by shop point ID")
+    min_expires_date: Optional[datetime] = Field(default=None, description="Minimum expiration date")
+    max_expires_date: Optional[datetime] = Field(default=None, description="Maximum expiration date")
+    min_original_cost: Optional[float] = Field(default=None, ge=0, description="Minimum original cost")
+    max_original_cost: Optional[float] = Field(default=None, ge=0, description="Maximum original cost")
+    min_current_cost: Optional[float] = Field(default=None, ge=0, description="Minimum current cost")
+    max_current_cost: Optional[float] = Field(default=None, ge=0, description="Maximum current cost")
+    min_count: Optional[int] = Field(default=None, ge=0, description="Minimum product count")
+    min_latitude: Optional[float] = Field(default=None, ge=-90.0, le=90.0, description="Minimum latitude for location-based filtering")
+    max_latitude: Optional[float] = Field(default=None, ge=-90.0, le=90.0, description="Maximum latitude for location-based filtering")
+    min_longitude: Optional[float] = Field(default=None, ge=-180.0, le=180.0, description="Minimum longitude for location-based filtering")
+    max_longitude: Optional[float] = Field(default=None, ge=-180.0, le=180.0, description="Maximum longitude for location-based filtering")
+
+    @model_validator(mode='after')
+    def validate_location_filters(self):
+        """Validate that location filters are used correctly"""
+        if self.min_latitude is not None and self.max_latitude is not None and self.min_latitude > self.max_latitude:
+            raise ValueError("min_latitude must be less than or equal to max_latitude")
+        
+        if self.min_longitude is not None and self.max_longitude is not None and self.min_longitude > self.max_longitude:
+            raise ValueError("min_longitude must be less than or equal to max_longitude")
+        
+        return self
 
 
 # Update forward references

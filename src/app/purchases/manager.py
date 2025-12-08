@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from fastapi import HTTPException, status
@@ -10,12 +10,15 @@ from app.purchases.models import PurchaseStatus, Purchase, PurchaseOffer
 from app.offers.service import OffersService
 from app.offers import schemas as offers_schemas
 from app.offers.models import Offer
+from app.shop_points.models import ShopPoint
+from app.sellers.manager import SellersManager
 from utils.errors_handler import handle_alchemy_error
 from app.purchases.tasks import check_purchase_expiration
 from config import settings
 from app.auth.jwt_utils import JWTUtils
 from app.payments.models import PaymentStatus
 from utils.pagination import PaginatedResponse
+from logger import get_sync_logger
 
 
 class PurchasesManager:
@@ -29,6 +32,7 @@ class PurchasesManager:
         self.jwt_utils = JWTUtils()
         from app.sellers.service import SellersService
         self.sellers_service = SellersService()
+        self.sellers_manager = SellersManager()
 
     @handle_alchemy_error
     async def create_purchase(
@@ -145,6 +149,9 @@ class PurchasesManager:
         
         # Commit transaction (releases locks)
         await session.commit()
+        
+        # Send notifications to sellers about reserved items
+        await self._notify_sellers_about_reservation(session, purchase.id)
         
         # Schedule Celery task to check purchase expiration
         try:
@@ -315,6 +322,9 @@ class PurchasesManager:
         
         # Commit transaction (releases locks)
         await session.commit()
+        
+        # Send notifications to sellers about reserved items
+        await self._notify_sellers_about_reservation(session, purchase.id)
         
         # Schedule Celery task to check purchase expiration
         try:
@@ -514,6 +524,82 @@ class PurchasesManager:
         
         await self.service.delete_purchase(session, purchase_id)
         await session.commit()
+
+    async def _notify_sellers_about_reservation(
+        self, session: AsyncSession, purchase_id: int
+    ) -> None:
+        """Send notifications to sellers whose items were reserved in purchase"""
+        logger = get_sync_logger(__name__)
+        
+        try:
+            # Get purchase offers
+            purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase_id)
+            if not purchase_offers:
+                return
+            
+            # Get offers with shop points
+            offer_ids = [po.offer_id for po in purchase_offers]
+            offers = await self.offers_service.get_offers_by_ids(session, offer_ids)
+            
+            # Get shop point IDs
+            shop_point_ids = list(set([offer.shop_id for offer in offers]))
+            
+            # Get shop points with sellers
+            from sqlalchemy import select
+            shop_points_result = await session.execute(
+                select(ShopPoint).where(ShopPoint.id.in_(shop_point_ids))
+            )
+            shop_points = shop_points_result.scalars().all()
+            
+            # Group offers by seller
+            seller_offers: Dict[int, List[Dict[str, Any]]] = {}
+            for offer in offers:
+                shop_point = next((sp for sp in shop_points if sp.id == offer.shop_id), None)
+                if shop_point:
+                    seller_id = shop_point.seller_id
+                    if seller_id not in seller_offers:
+                        seller_offers[seller_id] = []
+                    
+                    purchase_offer = next((po for po in purchase_offers if po.offer_id == offer.id), None)
+                    if purchase_offer:
+                        seller_offers[seller_id].append({
+                            "offer_id": offer.id,
+                            "quantity": purchase_offer.quantity,
+                            "cost": purchase_offer.cost_at_purchase or 0.0
+                        })
+            
+            # Send notifications to each seller
+            for seller_id, offers_list in seller_offers.items():
+                total_items = sum(offer["quantity"] for offer in offers_list)
+                total_cost = sum(offer["quantity"] * offer["cost"] for offer in offers_list)
+                
+                await self.sellers_manager.send_notification_to_seller(
+                    session=session,
+                    seller_id=seller_id,
+                    title="Items reserved",
+                    body=f"{total_items} item(s) reserved in order #{purchase_id}",
+                    data={
+                        "type": "items_reserved",
+                        "purchase_id": str(purchase_id),
+                        "total_items": str(total_items),
+                        "total_cost": f"{total_cost:.2f}"
+                    }
+                )
+                
+                logger.info(
+                    "Reservation notification sent to seller",
+                    extra={"seller_id": seller_id, "purchase_id": purchase_id, "items_count": total_items}
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to send reservation notifications to sellers: {str(e)}",
+                extra={
+                    "purchase_id": purchase_id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            # Don't raise exception - notification failure shouldn't break purchase creation
 
     def _purchase_to_schema_with_offers(
         self, 

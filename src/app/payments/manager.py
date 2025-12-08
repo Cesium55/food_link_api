@@ -12,8 +12,12 @@ from app.purchases.service import PurchasesService
 from app.purchases.models import PurchaseStatus
 from app.offers.service import OffersService
 from app.offers.models import Offer
+from app.shop_points.models import ShopPoint
+from app.auth.service import AuthService
+from app.sellers.manager import SellersManager
 from utils.yookassa_client import create_yookassa_client
 from utils.errors_handler import handle_alchemy_error
+from utils.firebase_notification_manager import FirebaseNotificationManager
 
 
 class PaymentsManager:
@@ -23,6 +27,9 @@ class PaymentsManager:
         self.service = PaymentsService()
         self.purchases_service = PurchasesService()
         self.offers_service = OffersService()
+        self.auth_service = AuthService()
+        self.notification_manager = FirebaseNotificationManager()
+        self.sellers_manager = SellersManager()
 
     async def create_payment_for_purchase(
         self,
@@ -448,6 +455,13 @@ class PaymentsManager:
         await self._decrease_offer_counts(session, payment.purchase_id)
 
         await session.commit()
+        
+        # Send push notification to user about successful payment
+        await self._send_payment_success_notification(session, purchase.user_id, payment_id)
+        
+        # Send notifications to sellers about paid items
+        await self._notify_sellers_about_payment(session, payment.purchase_id, payment_id)
+        
         return schemas.Payment.model_validate(updated_payment)
 
     async def _update_payment_to_succeeded(
@@ -662,6 +676,127 @@ class PaymentsManager:
                 detail=f"Payment with YooKassa ID {yookassa_payment_id} not found"
             )
         return payment
+
+    async def _send_payment_success_notification(
+        self, session: AsyncSession, user_id: int, payment_id: int
+    ) -> None:
+        """Send push notification to user about successful payment"""
+        logger = get_sync_logger(__name__)
+        
+        try:
+            user = await self.auth_service.get_user(session, user_id)
+            if not user or not user.firebase_token:
+                logger.info(
+                    "Skipping notification: user not found or no firebase token",
+                    extra={"user_id": user_id, "payment_id": payment_id}
+                )
+                return
+            
+            await self.notification_manager.send_notification(
+                token=user.firebase_token,
+                title="Payment confirmed",
+                body=f"Your payment #{payment_id} has been successfully confirmed",
+                data={
+                    "type": "payment_succeeded",
+                    "payment_id": str(payment_id),
+                }
+            )
+            
+            logger.info(
+                "Payment success notification sent",
+                extra={"user_id": user_id, "payment_id": payment_id}
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to send payment success notification: {str(e)}",
+                extra={
+                    "user_id": user_id,
+                    "payment_id": payment_id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            # Don't raise exception - notification failure shouldn't break payment processing
+
+    async def _notify_sellers_about_payment(
+        self, session: AsyncSession, purchase_id: int, payment_id: int
+    ) -> None:
+        """Send notifications to sellers whose items were paid"""
+        logger = get_sync_logger(__name__)
+        
+        try:
+            # Get purchase offers
+            purchase_offers = await self.purchases_service.get_purchase_offers_by_purchase_id(
+                session, purchase_id
+            )
+            if not purchase_offers:
+                return
+            
+            # Get offers with shop points
+            offer_ids = [po.offer_id for po in purchase_offers]
+            offers = await self.offers_service.get_offers_by_ids(session, offer_ids)
+            
+            # Get shop point IDs
+            shop_point_ids = list(set([offer.shop_id for offer in offers]))
+            
+            # Get shop points with sellers
+            from sqlalchemy import select
+            shop_points_result = await session.execute(
+                select(ShopPoint).where(ShopPoint.id.in_(shop_point_ids))
+            )
+            shop_points = shop_points_result.scalars().all()
+            
+            # Group offers by seller
+            seller_offers: Dict[int, List[Dict[str, Any]]] = {}
+            for offer in offers:
+                shop_point = next((sp for sp in shop_points if sp.id == offer.shop_id), None)
+                if shop_point:
+                    seller_id = shop_point.seller_id
+                    if seller_id not in seller_offers:
+                        seller_offers[seller_id] = []
+                    
+                    purchase_offer = next((po for po in purchase_offers if po.offer_id == offer.id), None)
+                    if purchase_offer:
+                        seller_offers[seller_id].append({
+                            "offer_id": offer.id,
+                            "quantity": purchase_offer.quantity,
+                            "cost": purchase_offer.cost_at_purchase or 0.0
+                        })
+            
+            # Send notifications to each seller
+            for seller_id, offers_list in seller_offers.items():
+                total_items = sum(offer["quantity"] for offer in offers_list)
+                total_cost = sum(offer["quantity"] * offer["cost"] for offer in offers_list)
+                
+                await self.sellers_manager.send_notification_to_seller(
+                    session=session,
+                    seller_id=seller_id,
+                    title="Payment received",
+                    body=f"Payment received for {total_items} item(s) in order #{purchase_id}",
+                    data={
+                        "type": "payment_received",
+                        "purchase_id": str(purchase_id),
+                        "payment_id": str(payment_id),
+                        "total_items": str(total_items),
+                        "total_cost": f"{total_cost:.2f}"
+                    }
+                )
+                
+                logger.info(
+                    "Payment notification sent to seller",
+                    extra={"seller_id": seller_id, "purchase_id": purchase_id, "payment_id": payment_id, "items_count": total_items}
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to send payment notifications to sellers: {str(e)}",
+                extra={
+                    "purchase_id": purchase_id,
+                    "payment_id": payment_id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            # Don't raise exception - notification failure shouldn't break payment processing
 
     def _parse_datetime(self, value: Optional[str]) -> Optional[datetime]:
         """Parse datetime from YooKassa ISO format"""
