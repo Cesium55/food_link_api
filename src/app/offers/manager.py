@@ -1,10 +1,11 @@
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
 from app.offers import schemas
 from app.offers.service import OffersService
+from app.offers.models import Offer
 from app.products import schemas as products_schemas
 from app.products.service import ProductsService
 from app.shop_points.service import ShopPointsService
@@ -13,6 +14,80 @@ from utils.pagination import PaginatedResponse
 
 
 class OffersManager:
+    """Manager for offers business logic and validation"""
+    
+    def calculate_dynamic_price(
+        self, offer: Offer, at_time: Optional[datetime] = None
+    ) -> Optional[float]:
+        """
+        Calculate dynamic price for an offer based on pricing strategy.
+        
+        Args:
+            offer: Offer instance with loaded pricing_strategy and steps
+            at_time: Time to calculate price at (defaults to current time)
+            
+        Returns:
+            Calculated price (can be 0.0 for free items) or None if cannot calculate
+        """
+        if at_time is None:
+            at_time = datetime.now(timezone.utc)
+        
+        # If no strategy ID, use current_cost (can be None)
+        if not offer.pricing_strategy_id:
+            return offer.current_cost
+        
+        # Try to access pricing_strategy safely
+        try:
+            strategy = offer.pricing_strategy
+        except AttributeError:
+            # Strategy not loaded - fallback to current_cost
+            return offer.current_cost
+        
+        # If strategy is None or not loaded, use current_cost
+        if not strategy:
+            return offer.current_cost
+        
+        # If no expires_date, cannot calculate dynamic price - fallback to current_cost
+        if not offer.expires_date:
+            return offer.current_cost
+        
+        # If expired, return None
+        if offer.expires_date < at_time:
+            return None
+        
+        # Calculate time remaining in seconds
+        time_remaining = (offer.expires_date - at_time).total_seconds()
+        time_remaining_seconds = int(time_remaining)
+        
+        # If no original_cost, cannot calculate dynamic price - fallback to current_cost
+        if not offer.original_cost:
+            return offer.current_cost
+        
+        # Try to access steps safely
+        try:
+            steps = strategy.steps
+        except AttributeError:
+            # Steps not loaded - use original_cost without discount
+            return offer.original_cost
+        
+        # If no steps in strategy, use original_cost without discount
+        if not steps:
+            return offer.original_cost
+        
+        # Steps are ordered by time_remaining_seconds (ascending)
+        # Find the step with MAXIMUM time_remaining_seconds that does NOT exceed current time remaining
+        # This means we need to find the highest threshold we've passed
+        discount_percent = 0.0
+        for step in steps:
+            # If we have MORE time remaining than this step requires, we can use this step
+            # Keep checking to find the step with the highest threshold we meet
+            if time_remaining_seconds >= step.time_remaining_seconds:
+                discount_percent = step.discount_percent
+                # Don't break - continue to find the step with highest threshold we meet
+        
+        # Calculate price with discount
+        price = offer.original_cost * (1 - discount_percent / 100.0)
+        return max(0.0, price)
     """Manager for offers business logic and validation"""
 
     def __init__(self):
@@ -26,7 +101,7 @@ class OffersManager:
         session: AsyncSession, 
         offer_data: schemas.OfferCreate
     ) -> schemas.Offer:
-        """Create a new offer with validation"""
+        """Create a new offer"""
         # Validate product exists
         product = await self.products_service.get_product_by_id(session, offer_data.product_id)
         if not product:
@@ -68,7 +143,8 @@ class OffersManager:
             filters.min_current_cost, filters.max_current_cost,
             filters.min_count,
             filters.min_latitude, filters.max_latitude,
-            filters.min_longitude, filters.max_longitude
+            filters.min_longitude, filters.max_longitude,
+            filters.has_dynamic_pricing
         )
         offer_schemas = [
             schemas.Offer.model_validate(offer) for offer in offers
@@ -94,7 +170,8 @@ class OffersManager:
             filters.min_current_cost, filters.max_current_cost,
             filters.min_count,
             filters.min_latitude, filters.max_latitude,
-            filters.min_longitude, filters.max_longitude
+            filters.min_longitude, filters.max_longitude,
+            filters.has_dynamic_pricing
         )
         result = []
         for offer in offers:
@@ -144,7 +221,7 @@ class OffersManager:
         offer_id: int, 
         offer_data: schemas.OfferUpdate
     ) -> schemas.Offer:
-        """Update offer with validation"""
+        """Update offer"""
         # Check if offer exists
         existing_offer = await self.service.get_offer_by_id(session, offer_id)
         if not existing_offer:
@@ -174,3 +251,23 @@ class OffersManager:
 
         await self.service.delete_offer(session, offer_id)
         await session.commit()
+
+    async def get_pricing_strategies(
+        self, session: AsyncSession
+    ) -> List[schemas.PricingStrategy]:
+        """Get list of all pricing strategies"""
+        strategies = await self.service.get_pricing_strategies(session)
+        return [schemas.PricingStrategy.model_validate(strategy) for strategy in strategies]
+
+    async def get_pricing_strategy_by_id(
+        self, session: AsyncSession, strategy_id: int
+    ) -> schemas.PricingStrategy:
+        """Get pricing strategy by ID"""
+        strategy = await self.service.get_pricing_strategy_by_id(session, strategy_id)
+        if not strategy:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Pricing strategy with id {strategy_id} not found"
+            )
+        return schemas.PricingStrategy.model_validate(strategy)
+

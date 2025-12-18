@@ -14,6 +14,7 @@ class OfferProcessingStatus(str, Enum):
     NOT_FOUND = "not_found"
     INSUFFICIENT_QUANTITY = "insufficient_quantity"
     EXPIRED = "expired"
+    ERROR = "error"
 
 
 class PurchaseOfferCreate(BaseModel):

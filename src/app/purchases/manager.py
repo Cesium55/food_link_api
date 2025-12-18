@@ -8,10 +8,13 @@ from app.purchases import schemas
 from app.purchases.service import PurchasesService
 from app.purchases.models import PurchaseStatus, Purchase, PurchaseOffer
 from app.offers.service import OffersService
+from app.offers.manager import OffersManager
 from app.offers import schemas as offers_schemas
 from app.offers.models import Offer
 from app.shop_points.models import ShopPoint
 from app.sellers.manager import SellersManager
+from app.sellers.service import SellersService
+from app.payments.manager import PaymentsManager
 from utils.errors_handler import handle_alchemy_error
 from app.purchases.tasks import check_purchase_expiration
 from config import settings
@@ -20,6 +23,8 @@ from app.payments.models import PaymentStatus
 from utils.pagination import PaginatedResponse
 from logger import get_sync_logger
 
+logger = get_sync_logger(__name__)
+
 
 class PurchasesManager:
     """Manager for purchases business logic and validation"""
@@ -27,10 +32,9 @@ class PurchasesManager:
     def __init__(self):
         self.service = PurchasesService()
         self.offers_service = OffersService()
-        from app.payments.manager import PaymentsManager
+        self.offers_manager = OffersManager()
         self.payments_manager = PaymentsManager()
         self.jwt_utils = JWTUtils()
-        from app.sellers.service import SellersService
         self.sellers_service = SellersService()
         self.sellers_manager = SellersManager()
 
@@ -103,8 +107,13 @@ class PurchasesManager:
                     detail=f"Insufficient quantity for offer {offer_id}. Available: {available_count}, requested: {requested_quantity}"
                 )
             
-            # All validations passed, add to purchase
-            cost_per_item = offer.current_cost or 0.0
+            # All validations passed, calculate price and add to purchase
+            cost_per_item = self.offers_manager.calculate_dynamic_price(offer)
+            if cost_per_item is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot calculate price for offer {offer_id}. Offer may be expired or missing required data."
+                )
             total_cost += cost_per_item * requested_quantity
             
             purchase_offers_data.append({
@@ -267,7 +276,14 @@ class PurchasesManager:
             
             # Add to purchase if we can process at least something
             if processed_quantity > 0:
-                cost_per_item = offer.current_cost or 0.0
+                cost_per_item = self.offers_manager.calculate_dynamic_price(offer)
+                if cost_per_item is None:
+                    # Skip this offer if price cannot be calculated
+                    result.status = schemas.OfferProcessingStatus.ERROR
+                    result.message = f"Cannot calculate price for offer {offer_id}. Offer may be expired or missing required data."
+                    offer_results.append(result)
+                    continue
+                
                 total_cost += cost_per_item * processed_quantity
                 
                 purchase_offers_data.append({

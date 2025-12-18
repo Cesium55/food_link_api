@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.debug.init import initialize_categories_from_json_file
 from app.purchases.tasks import cancel_all_expired_purchases
 from app.auth.service import AuthService
+from app.offers.init_pricing_strategies import init_pricing_strategies
 from config import settings
 
 router = APIRouter(prefix="/debug", tags=["debug"])
@@ -68,6 +69,55 @@ async def initialize_categories_from_file(request: Request) -> Dict[str, Any]:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to initialize categories from file: {str(e)}"
+        )
+
+
+@router.post("/init-pricing-strategies")
+async def initialize_pricing_strategies(request: Request) -> Dict[str, Any]:
+    """
+    Initialize default pricing strategies.
+    Creates two strategies:
+    - "Последняя неделя": 7 days (30%) → 6 days (40%) → ... → 1 day (90%)
+    - "Мягкое снижение": 14 days (10%) → 10 days (20%) → ... → 1 day (60%)
+    
+    This endpoint is idempotent - can be called multiple times without creating duplicates.
+    """
+    try:
+        strategies = await init_pricing_strategies(request.state.session)
+        
+        return {
+            "success": True,
+            "message": "Pricing strategies initialized successfully",
+            "strategies": {
+                "last_week": {
+                    "id": strategies["last_week"].id,
+                    "name": strategies["last_week"].name,
+                    "steps_count": len(strategies["last_week"].steps)
+                },
+                "soft_reduction": {
+                    "id": strategies["soft_reduction"].id,
+                    "name": strategies["soft_reduction"].name,
+                    "steps_count": len(strategies["soft_reduction"].steps)
+                }
+            }
+        }
+    except Exception as e:
+        error_message = str(e)
+        error_type = type(e).__name__
+        
+        import traceback
+        error_details = {
+            "error": "Failed to initialize pricing strategies",
+            "message": error_message,
+            "type": error_type
+        }
+        
+        if settings.debug:
+            error_details["traceback"] = traceback.format_exc()
+        
+        raise HTTPException(
+            status_code=500,
+            detail=error_details
         )
 
 

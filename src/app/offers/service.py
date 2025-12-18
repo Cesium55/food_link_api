@@ -5,7 +5,7 @@ from sqlalchemy import select, delete, update, insert, func, and_
 from sqlalchemy.orm import selectinload
 
 from app.offers import schemas
-from app.offers.models import Offer
+from app.offers.models import Offer, PricingStrategy, PricingStrategyStep
 from app.products.models import Product
 from app.shop_points.models import ShopPoint
 
@@ -22,6 +22,7 @@ class OffersService:
             .values(
                 product_id=schema.product_id,
                 shop_id=schema.shop_id,
+                pricing_strategy_id=schema.pricing_strategy_id,
                 expires_date=schema.expires_date,
                 original_cost=schema.original_cost,
                 current_cost=schema.current_cost,
@@ -38,6 +39,17 @@ class OffersService:
         result = await session.execute(
             select(Offer)
             .where(Offer.id == offer_id)
+        )
+        return result.scalar_one_or_none()
+    
+    async def get_offer_by_product_and_shop(
+        self, session: AsyncSession, product_id: int, shop_id: int
+    ) -> Optional[Offer]:
+        """Get offer by product_id and shop_id"""
+        result = await session.execute(
+            select(Offer).where(
+                and_(Offer.product_id == product_id, Offer.shop_id == shop_id)
+            )
         )
         return result.scalar_one_or_none()
 
@@ -80,7 +92,8 @@ class OffersService:
         min_latitude: Optional[float] = None,
         max_latitude: Optional[float] = None,
         min_longitude: Optional[float] = None,
-        max_longitude: Optional[float] = None
+        max_longitude: Optional[float] = None,
+        has_dynamic_pricing: Optional[bool] = None
     ) -> Tuple[select, List, bool, bool]:
         """
         Build offers query with filters.
@@ -121,6 +134,12 @@ class OffersService:
             conditions.append(Offer.current_cost <= max_current_cost)
         if min_count is not None:
             conditions.append(Offer.count >= min_count)
+        
+        if has_dynamic_pricing is not None:
+            if has_dynamic_pricing:
+                conditions.append(Offer.pricing_strategy_id.isnot(None))
+            else:
+                conditions.append(Offer.pricing_strategy_id.is_(None))
         
         if needs_shop_join:
             conditions.append(ShopPoint.latitude.isnot(None))
@@ -204,7 +223,8 @@ class OffersService:
         min_latitude: Optional[float] = None,
         max_latitude: Optional[float] = None,
         min_longitude: Optional[float] = None,
-        max_longitude: Optional[float] = None
+        max_longitude: Optional[float] = None,
+        has_dynamic_pricing: Optional[bool] = None
     ) -> List[Offer]:
         """Get list of offers with product information and optional filters"""
         base_query, _, _, _ = self._build_offers_query_with_filters(
@@ -230,20 +250,24 @@ class OffersService:
         self, session: AsyncSession, offer_id: int, schema: schemas.OfferUpdate
     ) -> Offer:
         """Update offer"""
-        update_data = {}
-        if schema.expires_date is not None:
-            update_data['expires_date'] = schema.expires_date
-        if schema.original_cost is not None:
-            update_data['original_cost'] = schema.original_cost
-        if schema.current_cost is not None:
-            update_data['current_cost'] = schema.current_cost
-        if schema.count is not None:
-            update_data['count'] = schema.count
+        # Get only fields that were explicitly set
+        update_data = schema.model_dump(exclude_unset=True)
+        
+        # Remove None values for non-nullable fields, but keep None for nullable fields if explicitly set
+        # For pricing_strategy_id, we want to allow None to disable the strategy
+        filtered_data = {}
+        for key, value in update_data.items():
+            if key == 'pricing_strategy_id':
+                # Allow None to be set explicitly to disable strategy
+                filtered_data[key] = value
+            elif value is not None:
+                # For other fields, only include non-None values
+                filtered_data[key] = value
 
         result = await session.execute(
             update(Offer)
             .where(Offer.id == offer_id)
-            .values(**update_data)
+            .values(**filtered_data)
             .returning(Offer)
         )
         return result.scalar_one()
@@ -276,18 +300,37 @@ class OffersService:
         Get offers by IDs with SELECT FOR UPDATE lock.
         This prevents concurrent modifications during reservation.
         Offers are ordered by ID to prevent deadlocks.
+        Loads pricing strategy with steps for dynamic pricing calculation.
         """
         if not offer_ids:
             return []
         
-        # Order by ID to prevent deadlocks when multiple transactions lock offers
+        # First, lock the offers
         result = await session.execute(
             select(Offer)
             .where(Offer.id.in_(offer_ids))
             .order_by(Offer.id)
             .with_for_update()
         )
-        return list(result.scalars().all())
+        offers = list(result.scalars().all())
+        
+        # Then load pricing strategies with steps for offers that have them
+        offers_with_strategy = [o for o in offers if o.pricing_strategy_id]
+        if offers_with_strategy:
+            strategy_ids = {o.pricing_strategy_id for o in offers_with_strategy}
+            strategies_result = await session.execute(
+                select(PricingStrategy)
+                .where(PricingStrategy.id.in_(strategy_ids))
+                .options(selectinload(PricingStrategy.steps))
+            )
+            strategies_dict = {s.id: s for s in strategies_result.scalars().all()}
+            
+            # Assign loaded strategies to offers
+            for offer in offers_with_strategy:
+                if offer.pricing_strategy_id in strategies_dict:
+                    offer.pricing_strategy = strategies_dict[offer.pricing_strategy_id]
+        
+        return offers
 
     async def update_offer_reserved_count(
         self, session: AsyncSession, offer_id: int, reserved_count_delta: int
@@ -311,3 +354,25 @@ class OffersService:
             .returning(Offer)
         )
         return result.scalar_one()
+
+    async def get_pricing_strategies(
+        self, session: AsyncSession
+    ) -> List[PricingStrategy]:
+        """Get list of all pricing strategies with steps"""
+        result = await session.execute(
+            select(PricingStrategy)
+            .options(selectinload(PricingStrategy.steps))
+            .order_by(PricingStrategy.id)
+        )
+        return result.scalars().all()
+
+    async def get_pricing_strategy_by_id(
+        self, session: AsyncSession, strategy_id: int
+    ) -> Optional[PricingStrategy]:
+        """Get pricing strategy by ID with steps"""
+        result = await session.execute(
+            select(PricingStrategy)
+            .where(PricingStrategy.id == strategy_id)
+            .options(selectinload(PricingStrategy.steps))
+        )
+        return result.scalar_one_or_none()

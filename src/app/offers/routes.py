@@ -54,6 +54,27 @@ async def get_offers_with_products(
     )
 
 
+@router.get("/pricing-strategies", response_model=List[schemas.PricingStrategy])
+async def get_pricing_strategies(
+    request: Request
+) -> List[schemas.PricingStrategy]:
+    """
+    Get list of all pricing strategies with their steps
+    """
+    return await offers_manager.get_pricing_strategies(request.state.session)
+
+
+@router.get("/pricing-strategies/{strategy_id}", response_model=schemas.PricingStrategy)
+async def get_pricing_strategy(
+    request: Request,
+    strategy_id: int
+) -> schemas.PricingStrategy:
+    """
+    Get pricing strategy by ID with steps
+    """
+    return await offers_manager.get_pricing_strategy_by_id(request.state.session, strategy_id)
+
+
 @router.get("/{offer_id}", response_model=schemas.Offer)
 async def get_offer(
     request: Request,
