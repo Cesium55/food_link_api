@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional, Dict, Any, TYPE_CHECKING
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict
@@ -25,7 +26,7 @@ class PaymentBase(BaseModel):
     purchase_id: int = Field(..., description="Purchase ID")
     yookassa_payment_id: Optional[str] = Field(None, description="YooKassa payment ID")
     status: str = Field(..., description="Payment status")
-    amount: float = Field(..., gt=0, description="Payment amount")
+    amount: Decimal = Field(..., gt=0, description="Payment amount")
     currency: str = Field(..., description="Payment currency")
     description: Optional[str] = Field(None, description="Payment description")
     confirmation_url: Optional[str] = Field(None, description="URL for payment confirmation")
@@ -67,7 +68,7 @@ class PaymentUpdate(BaseModel):
 class PaymentCreateInternal(BaseModel):
     """Internal schema for creating payment in database"""
     purchase_id: int = Field(..., description="Purchase ID")
-    amount: float = Field(..., gt=0, description="Payment amount")
+    amount: Decimal = Field(..., gt=0, description="Payment amount")
     currency: str = Field(default="RUB", description="Payment currency")
     description: Optional[str] = Field(None, description="Payment description")
     yookassa_payment_id: Optional[str] = Field(None, description="YooKassa payment ID")

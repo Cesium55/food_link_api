@@ -1,5 +1,6 @@
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, func
 from fastapi import HTTPException, status
@@ -35,7 +36,7 @@ class PaymentsManager:
         self,
         session: AsyncSession,
         purchase_id: int,
-        amount: float,
+        amount: Decimal,
         base_url: str,
     ) -> None:
         """Create a payment for a purchase (internal method, called during purchase creation)"""
@@ -69,19 +70,19 @@ class PaymentsManager:
         )
 
     async def _create_yookassa_payment_for_purchase(
-        self, purchase_id: int, amount: float, return_url: str
+        self, purchase_id: int, amount: Decimal, return_url: str
     ) -> Dict[str, Any]:
         """Create payment in YooKassa"""
         async with create_yookassa_client() as yookassa_client:
             return await yookassa_client.create_payment(
-                amount=amount,
+                amount=float(amount),
                 currency="RUB",
                 description=f"Payment for purchase #{purchase_id}",
                 return_url=return_url,
             )
 
     def _build_payment_create_internal_from_yookassa(
-        self, purchase_id: int, yookassa_payment: Dict[str, Any], amount: float
+        self, purchase_id: int, yookassa_payment: Dict[str, Any], amount: Decimal
     ) -> schemas.PaymentCreateInternal:
         """Build PaymentCreateInternal from YooKassa response"""
         confirmation = yookassa_payment.get("confirmation", {})
@@ -174,19 +175,19 @@ class PaymentsManager:
         return purchase
 
     async def _create_yookassa_payment(
-        self, payment_data: schemas.PaymentCreate, amount: float, return_url: str
+        self, payment_data: schemas.PaymentCreate, amount: Decimal, return_url: str
     ) -> Dict[str, Any]:
         """Create payment in YooKassa"""
         async with create_yookassa_client() as yookassa_client:
             return await yookassa_client.create_payment(
-                amount=amount,
+                amount=float(amount),
                 currency="RUB",
                 description=f"Payment for purchase #{payment_data.purchase_id}",
                 return_url=return_url,
             )
 
     def _build_payment_create_internal(
-        self, payment_data: schemas.PaymentCreate, yookassa_payment: Dict[str, Any], amount: float
+        self, payment_data: schemas.PaymentCreate, yookassa_payment: Dict[str, Any], amount: Decimal
     ) -> schemas.PaymentCreateInternal:
         """Build PaymentCreateInternal from payment data and YooKassa response"""
         confirmation = yookassa_payment.get("confirmation", {})
@@ -430,7 +431,7 @@ class PaymentsManager:
         Handle successful payment:
         - Update payment status to succeeded
         - Update purchase status to confirmed
-        - Decrease offer count (reserved_count and total count) - items are sold
+        - Decrease offer count and reserved_count - items are sold and removed from inventory
         
         Lock order: Payment -> Purchase -> Offers (to avoid deadlocks)
         """
@@ -485,7 +486,7 @@ class PaymentsManager:
     async def _decrease_offer_counts(
         self, session: AsyncSession, purchase_id: int
     ) -> None:
-        """Decrease offer reserved_count - items are sold, reserved_count is released"""
+        """Decrease offer count and reserved_count - items are sold"""
         purchase_offers = await self.purchases_service.get_purchase_offers_by_purchase_id(
             session, purchase_id
         )
@@ -497,9 +498,11 @@ class PaymentsManager:
         await self.offers_service.get_offers_by_ids_for_update(session, offer_ids)
 
         for purchase_offer in purchase_offers:
-            # Only decrease reserved_count, count already includes reserved items
-            # When item is sold, we just release the reservation
-            # count represents total quantity (available + reserved), so we don't change it
+            # Decrease both count (total quantity) and reserved_count
+            # When item is sold, we remove it from inventory and release the reservation
+            await self.offers_service.update_offer_count(
+                session, purchase_offer.offer_id, -purchase_offer.quantity
+            )
             await self.offers_service.update_offer_reserved_count(
                 session, purchase_offer.offer_id, -purchase_offer.quantity
             )
@@ -760,7 +763,7 @@ class PaymentsManager:
                         seller_offers[seller_id].append({
                             "offer_id": offer.id,
                             "quantity": purchase_offer.quantity,
-                            "cost": purchase_offer.cost_at_purchase or 0.0
+                            "cost": purchase_offer.cost_at_purchase or Decimal('0.00')
                         })
             
             # Send notifications to each seller

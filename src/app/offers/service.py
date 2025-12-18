@@ -1,5 +1,6 @@
 from typing import Optional, List, Tuple
 from datetime import datetime
+from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update, insert, func, and_
 from sqlalchemy.orm import selectinload
@@ -166,10 +167,10 @@ class OffersService:
         shop_id: Optional[int] = None,
         min_expires_date: Optional[datetime] = None,
         max_expires_date: Optional[datetime] = None,
-        min_original_cost: Optional[float] = None,
-        max_original_cost: Optional[float] = None,
-        min_current_cost: Optional[float] = None,
-        max_current_cost: Optional[float] = None,
+        min_original_cost: Optional[Decimal] = None,
+        max_original_cost: Optional[Decimal] = None,
+        min_current_cost: Optional[Decimal] = None,
+        max_current_cost: Optional[Decimal] = None,
         min_count: Optional[int] = None,
         min_latitude: Optional[float] = None,
         max_latitude: Optional[float] = None,
@@ -350,6 +351,34 @@ class OffersService:
             .where(Offer.id == offer_id)
             .values(
                 reserved_count=func.coalesce(Offer.reserved_count, 0) + reserved_count_delta
+            )
+            .returning(Offer)
+        )
+        return result.scalar_one()
+
+    async def update_offer_count(
+        self, session: AsyncSession, offer_id: int, count_delta: int
+    ) -> Offer:
+        """
+        Update offer count by delta.
+        
+        Important: This method should be called only after the offer has been locked
+        with SELECT FOR UPDATE to prevent race conditions.
+        
+        Args:
+            session: Database session
+            offer_id: Offer ID
+            count_delta: Delta to add to count (can be negative to decrease)
+        
+        Returns:
+            Updated offer
+        """
+        # Handle NULL values by using COALESCE
+        result = await session.execute(
+            update(Offer)
+            .where(Offer.id == offer_id)
+            .values(
+                count=func.coalesce(Offer.count, 0) + count_delta
             )
             .returning(Offer)
         )

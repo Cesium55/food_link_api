@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional, Any
+from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from fastapi import HTTPException, status
@@ -74,7 +75,7 @@ class PurchasesManager:
         locked_offers_dict = {offer.id: offer for offer in locked_offers}
         
         purchase_offers_data = []
-        total_cost = 0.0
+        total_cost = Decimal('0.00')
         successful_offer_ids = []
         
         # Validate all offers before creating purchase
@@ -213,7 +214,7 @@ class PurchasesManager:
         # Process each offer individually
         offer_results: List[schemas.OfferProcessingResult] = []
         purchase_offers_data = []
-        total_cost = 0.0
+        total_cost = Decimal('0.00')
         successful_offer_ids = []
         
         # Get all offer IDs to lock them at once (prevents deadlocks)
@@ -800,7 +801,7 @@ class PurchasesManager:
         
         # Build response items
         items = []
-        total_cost = 0.0
+        total_cost = Decimal('0.00')
         
         for po in purchase_offers:
             if po.offer and po.offer.product:
@@ -821,7 +822,7 @@ class PurchasesManager:
             purchase_id=purchase.id,
             status=purchase.status,
             items=items,
-            total_cost=total_cost if total_cost > 0 else None
+            total_cost=total_cost if total_cost > Decimal('0.00') else None
         )
 
     @handle_alchemy_error

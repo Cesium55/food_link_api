@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional, List, TYPE_CHECKING
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict
@@ -26,7 +27,7 @@ class PurchaseOfferCreate(BaseModel):
 class PurchaseOfferBase(BaseModel):
     """Base schema for purchase offer"""
     quantity: int = Field(..., gt=0, description="Quantity of the offer")
-    cost_at_purchase: Optional[float] = Field(None, ge=0, description="Cost at purchase time")
+    cost_at_purchase: Optional[Decimal] = Field(None, ge=0, description="Cost at purchase time")
 
 
 class PurchaseOffer(PurchaseOfferBase):
@@ -49,7 +50,7 @@ class PurchaseCreate(BaseModel):
 class PurchaseBase(BaseModel):
     """Base schema for purchase"""
     status: str = Field(..., description="Purchase status")
-    total_cost: Optional[float] = Field(None, ge=0, description="Total cost of the purchase")
+    total_cost: Optional[Decimal] = Field(None, ge=0, description="Total cost of the purchase")
 
 
 class Purchase(PurchaseBase):
@@ -126,7 +127,7 @@ class PurchaseOfferForFulfillment(BaseModel):
     fulfillment_status: Optional[str] = Field(None, description="Current fulfillment status")
     product_name: str = Field(..., description="Product name")
     shop_point_id: int = Field(..., description="Shop point ID")
-    cost_at_purchase: Optional[float] = Field(None, ge=0, description="Cost at purchase time")
+    cost_at_purchase: Optional[Decimal] = Field(None, ge=0, description="Cost at purchase time")
 
 
 class PurchaseInfoByTokenResponse(BaseModel):
@@ -134,7 +135,7 @@ class PurchaseInfoByTokenResponse(BaseModel):
     purchase_id: int = Field(..., description="Purchase ID")
     status: str = Field(..., description="Purchase status")
     items: List[PurchaseOfferForFulfillment] = Field(default_factory=list, description="List of seller's offers")
-    total_cost: Optional[float] = Field(None, ge=0, description="Total cost of order (only for seller's items)")
+    total_cost: Optional[Decimal] = Field(None, ge=0, description="Total cost of order (only for seller's items)")
 
 
 class OrderFulfillmentResponse(BaseModel):

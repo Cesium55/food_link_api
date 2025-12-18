@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional, TYPE_CHECKING
-from sqlalchemy import Float, Integer, Double, DateTime, ForeignKey, CheckConstraint, UniqueConstraint, String
+from sqlalchemy import Integer, Numeric, DateTime, ForeignKey, CheckConstraint, UniqueConstraint, String
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,8 +29,8 @@ class Offer(Base):
         Integer, ForeignKey("pricing_strategies.id"), nullable=True
     )
     expires_date: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
-    original_cost: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
-    current_cost: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    original_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
+    current_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
     count: Mapped[Optional[int]] = mapped_column(Integer, default=0, nullable=True)
     reserved_count: Mapped[Optional[int]] = mapped_column(Integer, default=0, nullable=True)
 
@@ -97,7 +98,7 @@ class PricingStrategyStep(Base):
         Integer, ForeignKey("pricing_strategies.id"), nullable=False, index=True
     )
     time_remaining_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
-    discount_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
 
     __table_args__ = (
         CheckConstraint(

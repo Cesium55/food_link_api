@@ -1,5 +1,6 @@
 from typing import Optional, List
 from datetime import datetime
+from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, update, delete, and_, func
 from sqlalchemy.orm import selectinload
@@ -12,7 +13,7 @@ class PurchasesService:
     """Service for working with purchases"""
 
     async def create_purchase(
-        self, session: AsyncSession, user_id: int, total_cost: Optional[float] = None
+        self, session: AsyncSession, user_id: int, total_cost: Optional[Decimal] = None
     ) -> Purchase:
         """Create a new purchase"""
         result = await session.execute(

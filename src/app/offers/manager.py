@@ -1,5 +1,6 @@
 from typing import List, Optional
 from datetime import datetime, timezone
+from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
@@ -18,7 +19,7 @@ class OffersManager:
     
     def calculate_dynamic_price(
         self, offer: Offer, at_time: Optional[datetime] = None
-    ) -> Optional[float]:
+    ) -> Optional[Decimal]:
         """
         Calculate dynamic price for an offer based on pricing strategy.
         
@@ -27,7 +28,7 @@ class OffersManager:
             at_time: Time to calculate price at (defaults to current time)
             
         Returns:
-            Calculated price (can be 0.0 for free items) or None if cannot calculate
+            Calculated price (can be Decimal('0.00') for free items) or None if cannot calculate
         """
         if at_time is None:
             at_time = datetime.now(timezone.utc)
@@ -77,7 +78,7 @@ class OffersManager:
         # Steps are ordered by time_remaining_seconds (ascending)
         # Find the step with MAXIMUM time_remaining_seconds that does NOT exceed current time remaining
         # This means we need to find the highest threshold we've passed
-        discount_percent = 0.0
+        discount_percent = Decimal('0.00')
         for step in steps:
             # If we have MORE time remaining than this step requires, we can use this step
             # Keep checking to find the step with the highest threshold we meet
@@ -86,8 +87,8 @@ class OffersManager:
                 # Don't break - continue to find the step with highest threshold we meet
         
         # Calculate price with discount
-        price = offer.original_cost * (1 - discount_percent / 100.0)
-        return max(0.0, price)
+        price = offer.original_cost * (Decimal('1') - discount_percent / Decimal('100'))
+        return max(Decimal('0.00'), price)
     """Manager for offers business logic and validation"""
 
     def __init__(self):

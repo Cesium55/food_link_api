@@ -1,7 +1,8 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional, TYPE_CHECKING
 from enum import Enum as PyEnum
-from sqlalchemy import Integer, Double, String, ForeignKey, CheckConstraint, Text
+from sqlalchemy import Integer, Numeric, String, ForeignKey, CheckConstraint, Text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,7 +35,7 @@ class UserPayment(Base):
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default=PaymentStatus.PENDING.value
     )
-    amount: Mapped[float] = mapped_column(Double, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="RUB")
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     confirmation_url: Mapped[Optional[str]] = mapped_column(

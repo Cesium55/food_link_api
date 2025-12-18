@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional, List, TYPE_CHECKING
 from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
 
@@ -7,7 +8,7 @@ if TYPE_CHECKING:
     from app.shop_points.schemas import ShopPoint
 
 
-def validate_pricing_conflict(pricing_strategy_id: Optional[int], current_cost: Optional[float]) -> None:
+def validate_pricing_conflict(pricing_strategy_id: Optional[int], current_cost: Optional[Decimal]) -> None:
     """Validate that pricing_strategy_id and current_cost are not set simultaneously"""
     if pricing_strategy_id is not None and current_cost is not None:
         raise ValueError(
@@ -19,8 +20,8 @@ def validate_pricing_conflict(pricing_strategy_id: Optional[int], current_cost: 
 class OfferBase(BaseModel):
     """Base schema for offer"""
     expires_date: Optional[datetime] = Field(None, description="Expiration date")
-    original_cost: Optional[float] = Field(None, ge=0, description="Original cost")
-    current_cost: Optional[float] = Field(None, ge=0, description="Current cost")
+    original_cost: Optional[Decimal] = Field(None, ge=0, description="Original cost")
+    current_cost: Optional[Decimal] = Field(None, ge=0, description="Current cost")
     count: Optional[int] = Field(None, ge=0, description="Product quantity")
     pricing_strategy_id: Optional[int] = Field(None, gt=0, description="Pricing strategy ID (optional)")
     
@@ -94,8 +95,8 @@ class OfferCreate(OfferBase):
 class OfferUpdate(BaseModel):
     """Schema for updating offer"""
     expires_date: Optional[datetime] = Field(None, description="Expiration date")
-    original_cost: Optional[float] = Field(None, ge=0, description="Original cost")
-    current_cost: Optional[float] = Field(None, ge=0, description="Current cost")
+    original_cost: Optional[Decimal] = Field(None, ge=0, description="Original cost")
+    current_cost: Optional[Decimal] = Field(None, ge=0, description="Current cost")
     count: Optional[int] = Field(None, ge=0, description="Product quantity")
     pricing_strategy_id: Optional[int] = Field(None, gt=0, description="Pricing strategy ID (optional, set to null to disable)")
     
@@ -169,7 +170,7 @@ class OffersSummary(BaseModel):
     total_entries: int = Field(..., description="Total number of offers")
     total_products: int = Field(..., description="Number of unique products")
     total_shop_points: int = Field(..., description="Number of unique shop points")
-    total_value: float = Field(..., description="Total offers value")
+    total_value: Decimal = Field(..., description="Total offers value")
 
 
 class ExpiringProductsSummary(BaseModel):
@@ -188,10 +189,10 @@ class OffersFilterParams(BaseModel):
     shop_id: Optional[int] = Field(default=None, ge=1, description="Filter by shop point ID")
     min_expires_date: Optional[datetime] = Field(default=None, description="Minimum expiration date")
     max_expires_date: Optional[datetime] = Field(default=None, description="Maximum expiration date")
-    min_original_cost: Optional[float] = Field(default=None, ge=0, description="Minimum original cost")
-    max_original_cost: Optional[float] = Field(default=None, ge=0, description="Maximum original cost")
-    min_current_cost: Optional[float] = Field(default=None, ge=0, description="Minimum current cost")
-    max_current_cost: Optional[float] = Field(default=None, ge=0, description="Maximum current cost")
+    min_original_cost: Optional[Decimal] = Field(default=None, ge=0, description="Minimum original cost")
+    max_original_cost: Optional[Decimal] = Field(default=None, ge=0, description="Maximum original cost")
+    min_current_cost: Optional[Decimal] = Field(default=None, ge=0, description="Minimum current cost")
+    max_current_cost: Optional[Decimal] = Field(default=None, ge=0, description="Maximum current cost")
     min_count: Optional[int] = Field(default=None, ge=0, description="Minimum product count")
     min_latitude: Optional[float] = Field(default=None, ge=-90.0, le=90.0, description="Minimum latitude for location-based filtering")
     max_latitude: Optional[float] = Field(default=None, ge=-90.0, le=90.0, description="Maximum latitude for location-based filtering")
@@ -214,7 +215,7 @@ class OffersFilterParams(BaseModel):
 class PricingStrategyStepBase(BaseModel):
     """Base schema for pricing strategy step"""
     time_remaining_seconds: int = Field(..., ge=0, description="Time remaining in seconds")
-    discount_percent: float = Field(..., ge=0, le=100, description="Discount percentage")
+    discount_percent: Decimal = Field(..., ge=0, le=100, description="Discount percentage")
 
 
 class PricingStrategyStep(PricingStrategyStepBase):

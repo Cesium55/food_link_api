@@ -1,7 +1,8 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional, TYPE_CHECKING
 from enum import Enum as PyEnum
-from sqlalchemy import Integer, Double, String, ForeignKey, CheckConstraint, UniqueConstraint, Text, Index
+from sqlalchemy import Integer, Numeric, String, ForeignKey, CheckConstraint, UniqueConstraint, Text, Index
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,7 +35,7 @@ class Purchase(Base):
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default=PurchaseStatus.PENDING.value
     )
-    total_cost: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    total_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow
     )
@@ -77,7 +78,7 @@ class PurchaseOffer(Base):
         Integer, ForeignKey("offers.id"), primary_key=True, nullable=False
     )
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
-    cost_at_purchase: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    cost_at_purchase: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
     
     # Fulfillment fields
     fulfillment_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
