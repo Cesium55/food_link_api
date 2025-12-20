@@ -187,6 +187,7 @@ class OffersFilterParams(BaseModel):
     product_id: Optional[int] = Field(default=None, ge=1, description="Filter by product ID")
     seller_id: Optional[int] = Field(default=None, ge=1, description="Filter by seller ID")
     shop_id: Optional[int] = Field(default=None, ge=1, description="Filter by shop point ID")
+    category_ids: Optional[List[int]] = Field(default=None, description="Filter by category IDs (offers with products having at least one of these categories)")
     min_expires_date: Optional[datetime] = Field(default=None, description="Minimum expiration date")
     max_expires_date: Optional[datetime] = Field(default=None, description="Maximum expiration date")
     min_original_cost: Optional[Decimal] = Field(default=None, ge=0, description="Minimum original cost")

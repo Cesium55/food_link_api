@@ -63,7 +63,8 @@ class OffersService:
             .where(Offer.id == offer_id)
             .options(
                 selectinload(Offer.product).selectinload(Product.images),
-                selectinload(Offer.product).selectinload(Product.attributes)
+                selectinload(Offer.product).selectinload(Product.attributes),
+                selectinload(Offer.product).selectinload(Product.categories)
             )
         )
         return result.scalar_one_or_none()
@@ -83,6 +84,7 @@ class OffersService:
         product_id: Optional[int] = None,
         seller_id: Optional[int] = None,
         shop_id: Optional[int] = None,
+        category_ids: Optional[List[int]] = None,
         min_expires_date: Optional[datetime] = None,
         max_expires_date: Optional[datetime] = None,
         min_original_cost: Optional[float] = None,
@@ -95,14 +97,15 @@ class OffersService:
         min_longitude: Optional[float] = None,
         max_longitude: Optional[float] = None,
         has_dynamic_pricing: Optional[bool] = None
-    ) -> Tuple[select, List, bool, bool]:
+    ) -> Tuple[select, List, bool, bool, bool]:
         """
         Build offers query with filters.
-        Returns: (base_query, conditions, needs_product_join, needs_shop_join)
+        Returns: (base_query, conditions, needs_product_join, needs_shop_join, needs_category_join)
         """
         base_query = select(Offer)
         
-        needs_product_join = seller_id is not None
+        needs_category_join = category_ids is not None and len(category_ids) > 0
+        needs_product_join = seller_id is not None or needs_category_join
         needs_shop_join = (
             min_latitude is not None or max_latitude is not None or
             min_longitude is not None or max_longitude is not None
@@ -110,6 +113,24 @@ class OffersService:
         
         if needs_product_join:
             base_query = base_query.join(Product, Offer.product_id == Product.id)
+        
+        if needs_category_join:
+            from app.product_categories.models import product_category_relations
+            # Subquery to check that product has all specified categories (AND logic)
+            category_count_subquery = (
+                select(
+                    product_category_relations.c.product_id,
+                    func.count(func.distinct(product_category_relations.c.category_id)).label('category_count')
+                )
+                .where(product_category_relations.c.category_id.in_(category_ids))
+                .group_by(product_category_relations.c.product_id)
+                .having(func.count(func.distinct(product_category_relations.c.category_id)) == len(category_ids))
+                .subquery()
+            )
+            base_query = base_query.join(
+                category_count_subquery,
+                Product.id == category_count_subquery.c.product_id
+            )
         
         if needs_shop_join:
             base_query = base_query.join(ShopPoint, Offer.shop_id == ShopPoint.id)
@@ -158,13 +179,14 @@ class OffersService:
         if conditions:
             base_query = base_query.where(and_(*conditions))
         
-        return base_query, conditions, needs_product_join, needs_shop_join
+        return base_query, conditions, needs_product_join, needs_shop_join, needs_category_join
 
     async def get_offers_paginated(
         self, session: AsyncSession, page: int, page_size: int,
         product_id: Optional[int] = None,
         seller_id: Optional[int] = None,
         shop_id: Optional[int] = None,
+        category_ids: Optional[List[int]] = None,
         min_expires_date: Optional[datetime] = None,
         max_expires_date: Optional[datetime] = None,
         min_original_cost: Optional[Decimal] = None,
@@ -175,22 +197,41 @@ class OffersService:
         min_latitude: Optional[float] = None,
         max_latitude: Optional[float] = None,
         min_longitude: Optional[float] = None,
-        max_longitude: Optional[float] = None
+        max_longitude: Optional[float] = None,
+        has_dynamic_pricing: Optional[bool] = None
     ) -> tuple[List[Offer], int]:
         """Get paginated list of offers with optional filters including location-based filtering"""
-        base_query, conditions, needs_product_join, needs_shop_join = self._build_offers_query_with_filters(
-            product_id, seller_id, shop_id,
+        base_query, conditions, needs_product_join, needs_shop_join, needs_category_join = self._build_offers_query_with_filters(
+            product_id, seller_id, shop_id, category_ids,
             min_expires_date, max_expires_date,
             min_original_cost, max_original_cost,
             min_current_cost, max_current_cost,
             min_count,
-            min_latitude, max_latitude, min_longitude, max_longitude
+            min_latitude, max_latitude, min_longitude, max_longitude,
+            has_dynamic_pricing
         )
         
         # Get total count with filters
-        count_query = select(func.count(Offer.id))
+        count_query = select(func.count(func.distinct(Offer.id)))
         if needs_product_join:
-            count_query = count_query.join(Product, Offer.product_id == Product.id)
+            count_query = count_query.select_from(Offer).join(Product, Offer.product_id == Product.id)
+        if needs_category_join:
+            from app.product_categories.models import product_category_relations
+            # Subquery to check that product has all specified categories (AND logic)
+            category_count_subquery = (
+                select(
+                    product_category_relations.c.product_id,
+                    func.count(func.distinct(product_category_relations.c.category_id)).label('category_count')
+                )
+                .where(product_category_relations.c.category_id.in_(category_ids))
+                .group_by(product_category_relations.c.product_id)
+                .having(func.count(func.distinct(product_category_relations.c.category_id)) == len(category_ids))
+                .subquery()
+            )
+            count_query = count_query.join(
+                category_count_subquery,
+                Product.id == category_count_subquery.c.product_id
+            )
         if needs_shop_join:
             count_query = count_query.join(ShopPoint, Offer.shop_id == ShopPoint.id)
         if conditions:
@@ -214,6 +255,7 @@ class OffersService:
         product_id: Optional[int] = None,
         seller_id: Optional[int] = None,
         shop_id: Optional[int] = None,
+        category_ids: Optional[List[int]] = None,
         min_expires_date: Optional[datetime] = None,
         max_expires_date: Optional[datetime] = None,
         min_original_cost: Optional[float] = None,
@@ -228,20 +270,22 @@ class OffersService:
         has_dynamic_pricing: Optional[bool] = None
     ) -> List[Offer]:
         """Get list of offers with product information and optional filters"""
-        base_query, _, _, _ = self._build_offers_query_with_filters(
-            product_id, seller_id, shop_id,
+        base_query, _, _, _, _ = self._build_offers_query_with_filters(
+            product_id, seller_id, shop_id, category_ids,
             min_expires_date, max_expires_date,
             min_original_cost, max_original_cost,
             min_current_cost, max_current_cost,
             min_count,
-            min_latitude, max_latitude, min_longitude, max_longitude
+            min_latitude, max_latitude, min_longitude, max_longitude,
+            has_dynamic_pricing
         )
         
         result = await session.execute(
             base_query
             .options(
                 selectinload(Offer.product).selectinload(Product.images),
-                selectinload(Offer.product).selectinload(Product.attributes)
+                selectinload(Offer.product).selectinload(Product.attributes),
+                selectinload(Offer.product).selectinload(Product.categories)
             )
             .order_by(Offer.id)
         )

@@ -3,7 +3,9 @@ from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.products import schemas
 from app.products.manager import ProductsManager
 from utils.auth_dependencies import get_current_user
+from utils.seller_dependencies import get_current_seller
 from app.auth.models import User
+from app.sellers.models import Seller
 from utils.pagination import PaginatedResponse
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -32,13 +34,14 @@ async def get_products(
     page_size: int = Query(default=20, ge=1, description="Number of items per page"),
     article: Optional[str] = Query(default=None, description="Filter by article"),
     code: Optional[str] = Query(default=None, description="Filter by code"),
-    seller_id: Optional[int] = Query(default=None, ge=1, description="Filter by seller ID")
+    seller_id: Optional[int] = Query(default=None, ge=1, description="Filter by seller ID"),
+    category_ids: Optional[List[int]] = Query(default=None, description="Filter by category IDs (products must have at least one of these categories)")
 ) -> PaginatedResponse[schemas.Product]:
     """
     Get paginated list of products with optional filters
     """
     return await products_manager.get_products_paginated(
-        request.state.session, page, page_size, article, code, seller_id
+        request.state.session, page, page_size, article, code, seller_id, category_ids
     )
 
 
@@ -86,20 +89,25 @@ async def get_product_with_details(request: Request, product_id: int) -> schemas
 async def update_product(
     request: Request,
     product_id: int, 
-    product_data: schemas.ProductUpdate
+    product_data: schemas.ProductUpdate,
+    current_seller: Seller = Depends(get_current_seller)
 ) -> schemas.Product:
     """
-    Update product
+    Update product (only own products)
     """
-    return await products_manager.update_product(request.state.session, product_id, product_data)
+    return await products_manager.update_product(request.state.session, product_id, product_data, current_seller)
 
 
 @router.delete("/{product_id}", status_code=204)
-async def delete_product(request: Request, product_id: int) -> None:
+async def delete_product(
+    request: Request,
+    product_id: int,
+    current_seller: Seller = Depends(get_current_seller)
+) -> None:
     """
-    Delete product
+    Delete product (only own products)
     """
-    await products_manager.delete_product(request.state.session, product_id)
+    await products_manager.delete_product(request.state.session, product_id, current_seller)
 
 
 @router.get("/summary/stats", response_model=schemas.ProductSummary)
@@ -122,12 +130,14 @@ async def get_products_by_ids(
 
 @router.post("/attributes", response_model=schemas.ProductAttribute, status_code=201)
 async def create_product_attribute(
-    request: Request, attribute_data: schemas.ProductAttributeCreate
+    request: Request,
+    attribute_data: schemas.ProductAttributeCreate,
+    current_seller: Seller = Depends(get_current_seller)
 ) -> schemas.ProductAttribute:
     """
-    Create a new product attribute
+    Create a new product attribute (only for own products)
     """
-    return await products_manager.create_product_attribute(request.state.session, attribute_data)
+    return await products_manager.create_product_attribute(request.state.session, attribute_data, current_seller)
 
 
 @router.get("/attributes/{attribute_id}", response_model=schemas.ProductAttribute)
@@ -164,20 +174,25 @@ async def get_product_attribute_by_slug(
 async def update_product_attribute(
     request: Request,
     attribute_id: int,
-    attribute_data: schemas.ProductAttributeUpdate
+    attribute_data: schemas.ProductAttributeUpdate,
+    current_seller: Seller = Depends(get_current_seller)
 ) -> schemas.ProductAttribute:
     """
-    Update product attribute
+    Update product attribute (only for own products)
     """
-    return await products_manager.update_product_attribute(request.state.session, attribute_id, attribute_data)
+    return await products_manager.update_product_attribute(request.state.session, attribute_id, attribute_data, current_seller)
 
 
 @router.delete("/attributes/{attribute_id}", status_code=204)
-async def delete_product_attribute(request: Request, attribute_id: int) -> None:
+async def delete_product_attribute(
+    request: Request,
+    attribute_id: int,
+    current_seller: Seller = Depends(get_current_seller)
+) -> None:
     """
-    Delete product attribute
+    Delete product attribute (only for own products)
     """
-    await products_manager.delete_product_attribute(request.state.session, attribute_id)
+    await products_manager.delete_product_attribute(request.state.session, attribute_id, current_seller)
 
 
 @router.post("/{product_id}/images", response_model=schemas.ProductImage, status_code=201)
@@ -185,13 +200,14 @@ async def upload_product_image(
     request: Request,
     product_id: int,
     file: UploadFile = File(...),
-    order: int = Query(default=0, ge=0)
+    order: int = Query(default=0, ge=0),
+    current_seller: Seller = Depends(get_current_seller)
 ) -> schemas.ProductImage:
     """
-    Upload an image for a product
+    Upload an image for a product (only own products)
     """
     return await products_manager.upload_product_image(
-        request.state.session, product_id, file, order
+        request.state.session, product_id, file, order, current_seller
     )
 
 
@@ -200,19 +216,24 @@ async def upload_product_images(
     request: Request,
     product_id: int,
     files: List[UploadFile] = File(...),
-    start_order: int = Query(default=0, ge=0)
+    start_order: int = Query(default=0, ge=0),
+    current_seller: Seller = Depends(get_current_seller)
 ) -> List[schemas.ProductImage]:
     """
-    Upload multiple images for a product
+    Upload multiple images for a product (only own products)
     """
     return await products_manager.upload_product_images(
-        request.state.session, product_id, files, start_order
+        request.state.session, product_id, files, start_order, current_seller
     )
 
 
 @router.delete("/images/{image_id}", status_code=204)
-async def delete_product_image(request: Request, image_id: int) -> None:
+async def delete_product_image(
+    request: Request,
+    image_id: int,
+    current_seller: Seller = Depends(get_current_seller)
+) -> None:
     """
-    Delete a product image
+    Delete a product image (only own products)
     """
-    await products_manager.delete_product_image(request.state.session, image_id)
+    await products_manager.delete_product_image(request.state.session, image_id, current_seller)

@@ -2,6 +2,7 @@ from typing import List
 from fastapi import APIRouter, Request
 from app.product_categories import schemas
 from app.product_categories.manager import ProductCategoriesManager
+from app.offers import schemas as offers_schemas
 
 router = APIRouter(prefix="/product-categories", tags=["product-categories"])
 
@@ -81,6 +82,22 @@ async def get_category_with_details(request: Request, category_id: int) -> schem
     Get category with full details
     """
     return await categories_manager.get_category_with_details(request.state.session, category_id)
+
+
+@router.get("/{category_id}/with-offers", response_model=schemas.ProductCategoryWithOffers)
+async def get_category_with_offers(request: Request, category_id: int) -> schemas.ProductCategoryWithOffers:
+    """
+    Get category with offers for products in this category
+    """
+    return await categories_manager.get_category_with_offers(request.state.session, category_id)
+
+
+@router.get("/{category_id}/offers", response_model=List[offers_schemas.OfferWithProduct])
+async def get_category_offers(request: Request, category_id: int) -> List[offers_schemas.OfferWithProduct]:
+    """
+    Get offers for products in this category
+    """
+    return await categories_manager.get_category_offers(request.state.session, category_id)
 
 
 @router.put("/{category_id}", response_model=schemas.ProductCategory)

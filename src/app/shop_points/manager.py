@@ -6,11 +6,13 @@ from app.shop_points import schemas
 from app.shop_points.service import ShopPointsService
 from app.sellers import schemas as sellers_schemas
 from app.sellers.service import SellersService
+from app.sellers.models import Seller
 from app.maps.yandex_geocoder import create_geocoder
 from utils.errors_handler import handle_alchemy_error
 from utils.image_manager import ImageManager
 from fastapi import UploadFile
 from utils.pagination import PaginatedResponse
+from utils.seller_dependencies import verify_seller_owns_resource
 
 
 class ShopPointsManager:
@@ -22,8 +24,15 @@ class ShopPointsManager:
         self.image_manager = ImageManager()
 
     @handle_alchemy_error
-    async def create_shop_point(self, session: AsyncSession, shop_point_data: schemas.ShopPointCreate) -> schemas.ShopPoint:
+    async def create_shop_point(self, session: AsyncSession, shop_point_data: schemas.ShopPointCreate, current_seller: Seller = None) -> schemas.ShopPoint:
         """Create a new shop point with validation"""
+        # Check ownership - seller should only create shop points for their own account
+        if current_seller and shop_point_data.seller_id != current_seller.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only create shop points for your own seller account"
+            )
+        
         # Create shop point
         shop_point = await self.service.create_shop_point(session, shop_point_data)
         await session.commit()
@@ -108,16 +117,37 @@ class ShopPointsManager:
         self, 
         session: AsyncSession,
         shop_point_id: int, 
-        shop_point_data: schemas.ShopPointUpdate
+        shop_point_data: schemas.ShopPointUpdate,
+        current_seller: Seller = None
     ) -> schemas.ShopPoint:
         """Update shop point with validation"""
+        # Check ownership
+        if current_seller:
+            shop_point = await self.service.get_shop_point_by_id(session, shop_point_id)
+            if not shop_point:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Shop point with id {shop_point_id} not found"
+                )
+            await verify_seller_owns_resource(shop_point.seller_id, current_seller)
+        
         updated_shop_point = await self.service.update_shop_point(session, shop_point_id, shop_point_data)
         await session.commit()
         return schemas.ShopPoint.model_validate(updated_shop_point)
 
     @handle_alchemy_error
-    async def delete_shop_point(self, session: AsyncSession, shop_point_id: int) -> None:
+    async def delete_shop_point(self, session: AsyncSession, shop_point_id: int, current_seller: Seller = None) -> None:
         """Delete shop point"""
+        # Check ownership
+        if current_seller:
+            shop_point = await self.service.get_shop_point_by_id(session, shop_point_id)
+            if not shop_point:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Shop point with id {shop_point_id} not found"
+                )
+            await verify_seller_owns_resource(shop_point.seller_id, current_seller)
+        
         await self.service.delete_shop_point(session, shop_point_id)
         await session.commit()
 
@@ -198,9 +228,20 @@ class ShopPointsManager:
         session: AsyncSession,
         shop_point_id: int,
         file: UploadFile,
-        order: int = 0
+        order: int = 0,
+        current_seller: Seller = None
     ) -> schemas.ShopPointImage:
         """Upload image for shop point"""
+        # Check ownership
+        if current_seller:
+            shop_point = await self.service.get_shop_point_by_id(session, shop_point_id)
+            if not shop_point:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Shop point with id {shop_point_id} not found"
+                )
+            await verify_seller_owns_resource(shop_point.seller_id, current_seller)
+        
         return await self.image_manager.upload_and_create_image_record(
             session=session,
             entity_id=shop_point_id,
@@ -219,9 +260,20 @@ class ShopPointsManager:
         session: AsyncSession,
         shop_point_id: int,
         files: list[UploadFile],
-        start_order: int = 0
+        start_order: int = 0,
+        current_seller: Seller = None
     ) -> list[schemas.ShopPointImage]:
         """Upload multiple images for shop point"""
+        # Check ownership
+        if current_seller:
+            shop_point = await self.service.get_shop_point_by_id(session, shop_point_id)
+            if not shop_point:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Shop point with id {shop_point_id} not found"
+                )
+            await verify_seller_owns_resource(shop_point.seller_id, current_seller)
+        
         return await self.image_manager.upload_multiple_and_create_image_records(
             session=session,
             entity_id=shop_point_id,
@@ -238,9 +290,26 @@ class ShopPointsManager:
     async def delete_shop_point_image(
         self,
         session: AsyncSession,
-        image_id: int
+        image_id: int,
+        current_seller: Seller = None
     ) -> None:
         """Delete shop point image"""
+        # Check ownership
+        if current_seller:
+            image = await self.service.get_shop_point_image_by_id(session, image_id)
+            if not image:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Shop point image not found"
+                )
+            shop_point = await self.service.get_shop_point_by_id(session, image.shop_point_id)
+            if not shop_point:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Shop point with id {image.shop_point_id} not found"
+                )
+            await verify_seller_owns_resource(shop_point.seller_id, current_seller)
+        
         await self.image_manager.delete_image_record(
             session=session,
             image_id=image_id,

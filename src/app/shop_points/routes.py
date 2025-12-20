@@ -3,7 +3,9 @@ from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.shop_points import schemas
 from app.shop_points.manager import ShopPointsManager
 from utils.auth_dependencies import get_current_user
+from utils.seller_dependencies import get_current_seller
 from app.auth.models import User
+from app.sellers.models import Seller
 from utils.pagination import PaginatedResponse
 
 router = APIRouter(prefix="/shop-points", tags=["shop-points"])
@@ -14,12 +16,14 @@ shop_points_manager = ShopPointsManager()
 
 @router.post("", response_model=schemas.ShopPoint, status_code=201)
 async def create_shop_point(
-    request: Request, shop_point_data: schemas.ShopPointCreate
+    request: Request,
+    shop_point_data: schemas.ShopPointCreate,
+    current_seller: Seller = Depends(get_current_seller)
 ) -> schemas.ShopPoint:
     """
-    Create a new shop point
+    Create a new shop point (only for own seller account)
     """
-    return await shop_points_manager.create_shop_point(request.state.session, shop_point_data)
+    return await shop_points_manager.create_shop_point(request.state.session, shop_point_data, current_seller)
 
 
 @router.get("", response_model=PaginatedResponse[schemas.ShopPoint])
@@ -72,20 +76,25 @@ async def get_shop_point_with_seller(request: Request, shop_point_id: int) -> sc
 async def update_shop_point(
     request: Request,
     shop_point_id: int, 
-    shop_point_data: schemas.ShopPointUpdate
+    shop_point_data: schemas.ShopPointUpdate,
+    current_seller: Seller = Depends(get_current_seller)
 ) -> schemas.ShopPoint:
     """
-    Update shop point
+    Update shop point (only own shop points)
     """
-    return await shop_points_manager.update_shop_point(request.state.session, shop_point_id, shop_point_data)
+    return await shop_points_manager.update_shop_point(request.state.session, shop_point_id, shop_point_data, current_seller)
 
 
 @router.delete("/{shop_point_id}", status_code=204)
-async def delete_shop_point(request: Request, shop_point_id: int) -> None:
+async def delete_shop_point(
+    request: Request,
+    shop_point_id: int,
+    current_seller: Seller = Depends(get_current_seller)
+) -> None:
     """
-    Delete shop point
+    Delete shop point (only own shop points)
     """
-    await shop_points_manager.delete_shop_point(request.state.session, shop_point_id)
+    await shop_points_manager.delete_shop_point(request.state.session, shop_point_id, current_seller)
 
 
 @router.get("/summary/stats", response_model=schemas.ShopPointSummary)
@@ -127,13 +136,14 @@ async def upload_shop_point_image(
     request: Request,
     shop_point_id: int,
     file: UploadFile = File(...),
-    order: int = Query(default=0, ge=0)
+    order: int = Query(default=0, ge=0),
+    current_seller: Seller = Depends(get_current_seller)
 ) -> schemas.ShopPointImage:
     """
-    Upload an image for a shop point
+    Upload an image for a shop point (only own shop points)
     """
     return await shop_points_manager.upload_shop_point_image(
-        request.state.session, shop_point_id, file, order
+        request.state.session, shop_point_id, file, order, current_seller
     )
 
 
@@ -142,19 +152,24 @@ async def upload_shop_point_images(
     request: Request,
     shop_point_id: int,
     files: List[UploadFile] = File(...),
-    start_order: int = Query(default=0, ge=0)
+    start_order: int = Query(default=0, ge=0),
+    current_seller: Seller = Depends(get_current_seller)
 ) -> List[schemas.ShopPointImage]:
     """
-    Upload multiple images for a shop point
+    Upload multiple images for a shop point (only own shop points)
     """
     return await shop_points_manager.upload_shop_point_images(
-        request.state.session, shop_point_id, files, start_order
+        request.state.session, shop_point_id, files, start_order, current_seller
     )
 
 
 @router.delete("/images/{image_id}", status_code=204)
-async def delete_shop_point_image(request: Request, image_id: int) -> None:
+async def delete_shop_point_image(
+    request: Request,
+    image_id: int,
+    current_seller: Seller = Depends(get_current_seller)
+) -> None:
     """
-    Delete a shop point image
+    Delete a shop point image (only own shop points)
     """
-    await shop_points_manager.delete_shop_point_image(request.state.session, image_id)
+    await shop_points_manager.delete_shop_point_image(request.state.session, image_id, current_seller)

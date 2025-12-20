@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 if TYPE_CHECKING:
     from app.products.schemas import Product
+    from app.offers.schemas import OfferWithProduct
 
 
 class ProductCategoryBase(BaseModel):
@@ -54,6 +55,11 @@ class ProductCategoryWithDetails(ProductCategory):
     products: List["Product"] = Field(default_factory=list, description="Products in category")
 
 
+class ProductCategoryWithOffers(ProductCategory):
+    """Category schema with offers"""
+    offers: List["OfferWithProduct"] = Field(default_factory=list, description="Offers for products in category")
+
+
 class ProductCategorySummary(BaseModel):
     """Product categories summary schema"""
     total_categories: int = Field(..., description="Total number of categories")
@@ -65,10 +71,12 @@ class ProductCategorySummary(BaseModel):
 def _rebuild_models():
     try:
         from app.products.schemas import Product
+        from app.offers.schemas import OfferWithProduct
         ProductCategoryWithParent.model_rebuild()
         ProductCategoryWithSubcategories.model_rebuild()
         ProductCategoryWithProducts.model_rebuild()
         ProductCategoryWithDetails.model_rebuild()
+        ProductCategoryWithOffers.model_rebuild()
     except ImportError:
         pass
 

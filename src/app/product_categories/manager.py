@@ -6,6 +6,8 @@ from app.product_categories import schemas
 from app.product_categories.service import ProductCategoriesService
 from app.products.service import ProductsService
 from app.products import schemas as products_schemas
+from app.offers.service import OffersService
+from app.offers import schemas as offers_schemas
 from utils.errors_handler import handle_alchemy_error
 
 
@@ -15,6 +17,7 @@ class ProductCategoriesManager:
     def __init__(self):
         self.service = ProductCategoriesService()
         self.products_service = ProductsService()
+        self.offers_service = OffersService()
 
     @handle_alchemy_error
     async def create_category(self, session: AsyncSession, category_data: schemas.ProductCategoryCreate) -> schemas.ProductCategory:
@@ -152,6 +155,50 @@ class ProductCategoriesManager:
         """Delete category"""
         await self.service.delete_category(session, category_id)
         await session.commit()
+
+    async def get_category_with_offers(self, session: AsyncSession, category_id: int) -> schemas.ProductCategoryWithOffers:
+        """Get category with offers for products in this category"""
+        category = await self.service.get_category_by_id(session, category_id)
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category with id {category_id} not found"
+            )
+
+        category_schema = schemas.ProductCategory.model_validate(category)
+        # Get offers filtered by this category
+        offers = await self.offers_service.get_offers_with_products(
+            session,
+            product_id=None,
+            seller_id=None,
+            shop_id=None,
+            category_ids=[category_id]
+        )
+        offers_list = [offers_schemas.OfferWithProduct.model_validate(offer) for offer in offers]
+        
+        return schemas.ProductCategoryWithOffers(
+            **category_schema.model_dump(),
+            offers=offers_list
+        )
+
+    async def get_category_offers(self, session: AsyncSession, category_id: int) -> List[offers_schemas.OfferWithProduct]:
+        """Get offers for products in this category"""
+        category = await self.service.get_category_by_id(session, category_id)
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category with id {category_id} not found"
+            )
+
+        # Get offers filtered by this category
+        offers = await self.offers_service.get_offers_with_products(
+            session,
+            product_id=None,
+            seller_id=None,
+            shop_id=None,
+            category_ids=[category_id]
+        )
+        return [offers_schemas.OfferWithProduct.model_validate(offer) for offer in offers]
 
     async def get_categories_summary(self, session: AsyncSession) -> schemas.ProductCategorySummary:
         """Get categories summary statistics"""

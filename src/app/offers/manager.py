@@ -10,8 +10,10 @@ from app.offers.models import Offer
 from app.products import schemas as products_schemas
 from app.products.service import ProductsService
 from app.shop_points.service import ShopPointsService
+from app.sellers.models import Seller
 from utils.errors_handler import handle_alchemy_error
 from utils.pagination import PaginatedResponse
+from utils.seller_dependencies import verify_seller_owns_resource
 
 
 class OffersManager:
@@ -100,7 +102,8 @@ class OffersManager:
     async def create_offer(
         self, 
         session: AsyncSession, 
-        offer_data: schemas.OfferCreate
+        offer_data: schemas.OfferCreate,
+        current_seller: Seller = None
     ) -> schemas.Offer:
         """Create a new offer"""
         # Validate product exists
@@ -119,6 +122,11 @@ class OffersManager:
                 detail=f"Shop point with id {offer_data.shop_id} not found"
             )
 
+        # Check ownership - seller must own both product and shop point
+        if current_seller:
+            await verify_seller_owns_resource(product.seller_id, current_seller)
+            await verify_seller_owns_resource(shop_point.seller_id, current_seller)
+
         # Create offer
         offer = await self.service.create_offer(session, offer_data)
         await session.commit()
@@ -133,51 +141,89 @@ class OffersManager:
         return [schemas.Offer.model_validate(offer) for offer in offers]
 
     async def get_offers_paginated(
-        self, session: AsyncSession, filters: schemas.OffersFilterParams
+        self,
+        session: AsyncSession,
+        page: int,
+        page_size: int,
+        product_id: Optional[int] = None,
+        seller_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        category_ids: Optional[List[int]] = None,
+        min_expires_date: Optional[datetime] = None,
+        max_expires_date: Optional[datetime] = None,
+        min_original_cost: Optional[Decimal] = None,
+        max_original_cost: Optional[Decimal] = None,
+        min_current_cost: Optional[Decimal] = None,
+        max_current_cost: Optional[Decimal] = None,
+        min_count: Optional[int] = None,
+        min_latitude: Optional[float] = None,
+        max_latitude: Optional[float] = None,
+        min_longitude: Optional[float] = None,
+        max_longitude: Optional[float] = None,
+        has_dynamic_pricing: Optional[bool] = None
     ) -> PaginatedResponse[schemas.Offer]:
         """Get paginated list of offers with optional filters"""
         offers, total_count = await self.service.get_offers_paginated(
-            session, filters.page, filters.page_size,
-            filters.product_id, filters.seller_id, filters.shop_id,
-            filters.min_expires_date, filters.max_expires_date,
-            filters.min_original_cost, filters.max_original_cost,
-            filters.min_current_cost, filters.max_current_cost,
-            filters.min_count,
-            filters.min_latitude, filters.max_latitude,
-            filters.min_longitude, filters.max_longitude,
-            filters.has_dynamic_pricing
+            session, page, page_size,
+            product_id, seller_id, shop_id,
+            category_ids,
+            min_expires_date, max_expires_date,
+            min_original_cost, max_original_cost,
+            min_current_cost, max_current_cost,
+            min_count,
+            min_latitude, max_latitude,
+            min_longitude, max_longitude,
+            has_dynamic_pricing
         )
         offer_schemas = [
             schemas.Offer.model_validate(offer) for offer in offers
         ]
         return PaginatedResponse.create(
             items=offer_schemas,
-            page=filters.page,
-            page_size=filters.page_size,
+            page=page,
+            page_size=page_size,
             total_items=total_count
         )
 
     async def get_offers_with_products(
         self,
         session: AsyncSession,
-        filters: schemas.OffersFilterParams
+        product_id: Optional[int] = None,
+        seller_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        category_ids: Optional[List[int]] = None,
+        min_expires_date: Optional[datetime] = None,
+        max_expires_date: Optional[datetime] = None,
+        min_original_cost: Optional[Decimal] = None,
+        max_original_cost: Optional[Decimal] = None,
+        min_current_cost: Optional[Decimal] = None,
+        max_current_cost: Optional[Decimal] = None,
+        min_count: Optional[int] = None,
+        min_latitude: Optional[float] = None,
+        max_latitude: Optional[float] = None,
+        min_longitude: Optional[float] = None,
+        max_longitude: Optional[float] = None,
+        has_dynamic_pricing: Optional[bool] = None
     ) -> List[schemas.OfferWithProduct]:
         """Get list of offers with product information and optional filters"""
         offers = await self.service.get_offers_with_products(
             session,
-            filters.product_id, filters.seller_id, filters.shop_id,
-            filters.min_expires_date, filters.max_expires_date,
-            filters.min_original_cost, filters.max_original_cost,
-            filters.min_current_cost, filters.max_current_cost,
-            filters.min_count,
-            filters.min_latitude, filters.max_latitude,
-            filters.min_longitude, filters.max_longitude,
-            filters.has_dynamic_pricing
+            product_id, seller_id, shop_id,
+            category_ids,
+            min_expires_date, max_expires_date,
+            min_original_cost, max_original_cost,
+            min_current_cost, max_current_cost,
+            min_count,
+            min_latitude, max_latitude,
+            min_longitude, max_longitude,
+            has_dynamic_pricing
         )
         result = []
         for offer in offers:
             offer_schema = schemas.Offer.model_validate(offer)
             product_schema = products_schemas.Product.model_validate(offer.product)
+            # Add category IDs from loaded categories
+            product_schema.category_ids = [cat.id for cat in offer.product.categories]
             result.append(schemas.OfferWithProduct(
                 **offer_schema.model_dump(),
                 product=product_schema
@@ -209,6 +255,8 @@ class OffersManager:
         
         offer_schema = schemas.Offer.model_validate(offer)
         product_schema = products_schemas.Product.model_validate(offer.product)
+        # Add category IDs from loaded categories
+        product_schema.category_ids = [cat.id for cat in offer.product.categories]
         
         return schemas.OfferWithProduct(
             **offer_schema.model_dump(),
@@ -220,7 +268,8 @@ class OffersManager:
         self, 
         session: AsyncSession,
         offer_id: int, 
-        offer_data: schemas.OfferUpdate
+        offer_data: schemas.OfferUpdate,
+        current_seller: Seller = None
     ) -> schemas.Offer:
         """Update offer"""
         # Check if offer exists
@@ -231,6 +280,16 @@ class OffersManager:
                 detail=f"Offer with id {offer_id} not found"
             )
 
+        # Check ownership - verify seller owns the product associated with offer
+        if current_seller:
+            product = await self.products_service.get_product_by_id(session, existing_offer.product_id)
+            if not product:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Product with id {existing_offer.product_id} not found"
+                )
+            await verify_seller_owns_resource(product.seller_id, current_seller)
+
         # Update offer
         updated_offer = await self.service.update_offer(session, offer_id, offer_data)
         await session.commit()
@@ -239,7 +298,7 @@ class OffersManager:
 
     @handle_alchemy_error
     async def delete_offer(
-        self, session: AsyncSession, offer_id: int
+        self, session: AsyncSession, offer_id: int, current_seller: Seller = None
     ) -> None:
         """Delete offer"""
         # Check if offer exists
@@ -249,6 +308,16 @@ class OffersManager:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Offer with id {offer_id} not found"
             )
+
+        # Check ownership - verify seller owns the product associated with offer
+        if current_seller:
+            product = await self.products_service.get_product_by_id(session, existing_offer.product_id)
+            if not product:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Product with id {existing_offer.product_id} not found"
+                )
+            await verify_seller_owns_resource(product.seller_id, current_seller)
 
         await self.service.delete_offer(session, offer_id)
         await session.commit()

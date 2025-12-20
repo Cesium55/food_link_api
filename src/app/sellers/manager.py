@@ -17,6 +17,7 @@ from utils.image_manager import ImageManager
 from utils.firebase_notification_manager import FirebaseNotificationManager
 from fastapi import UploadFile
 from utils.pagination import PaginatedResponse
+from utils.seller_dependencies import verify_seller_owns_resource
 
 
 class SellersManager:
@@ -174,9 +175,12 @@ class SellersManager:
 
     @handle_alchemy_error
     async def update_seller(
-        self, session: AsyncSession, seller_id: int, seller_data: schemas.SellerUpdate
+        self, session: AsyncSession, seller_id: int, seller_data: schemas.SellerUpdate, current_seller: Seller
     ) -> schemas.Seller:
         """Update seller with validation"""
+        # Check ownership
+        await verify_seller_owns_resource(seller_id, current_seller)
+        
         updated_seller = await self.service.update_seller(
             session, seller_id, seller_data
         )
@@ -184,8 +188,11 @@ class SellersManager:
         return schemas.Seller.model_validate(updated_seller)
 
     @handle_alchemy_error
-    async def delete_seller(self, session: AsyncSession, seller_id: int) -> None:
+    async def delete_seller(self, session: AsyncSession, seller_id: int, current_seller: Seller) -> None:
         """Delete seller"""
+        # Check ownership
+        await verify_seller_owns_resource(seller_id, current_seller)
+        
         await self.service.delete_seller(session, seller_id)
         await session.commit()
 
@@ -207,9 +214,14 @@ class SellersManager:
         session: AsyncSession,
         seller_id: int,
         file: UploadFile,
-        order: int = 0
+        order: int = 0,
+        current_seller: Seller = None
     ) -> schemas.SellerImage:
         """Upload image for seller"""
+        # Check ownership
+        if current_seller:
+            await verify_seller_owns_resource(seller_id, current_seller)
+        
         return await self.image_manager.upload_and_create_image_record(
             session=session,
             entity_id=seller_id,
@@ -228,9 +240,14 @@ class SellersManager:
         session: AsyncSession,
         seller_id: int,
         files: list[UploadFile],
-        start_order: int = 0
+        start_order: int = 0,
+        current_seller: Seller = None
     ) -> list[schemas.SellerImage]:
         """Upload multiple images for seller"""
+        # Check ownership
+        if current_seller:
+            await verify_seller_owns_resource(seller_id, current_seller)
+        
         return await self.image_manager.upload_multiple_and_create_image_records(
             session=session,
             entity_id=seller_id,
@@ -247,9 +264,20 @@ class SellersManager:
     async def delete_seller_image(
         self,
         session: AsyncSession,
-        image_id: int
+        image_id: int,
+        current_seller: Seller = None
     ) -> None:
         """Delete seller image"""
+        # Check ownership
+        if current_seller:
+            image = await self.service.get_seller_image_by_id(session, image_id)
+            if not image:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Seller image not found"
+                )
+            await verify_seller_owns_resource(image.seller_id, current_seller)
+        
         await self.image_manager.delete_image_record(
             session=session,
             image_id=image_id,

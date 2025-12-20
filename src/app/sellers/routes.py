@@ -3,7 +3,9 @@ from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.sellers import schemas
 from app.sellers.manager import SellersManager
 from utils.auth_dependencies import get_current_user
+from utils.seller_dependencies import get_current_seller
 from app.auth.models import User
+from app.sellers.models import Seller
 from utils.pagination import PaginationParams, PaginatedResponse
 
 router = APIRouter(prefix="/sellers", tags=["sellers"])
@@ -93,22 +95,29 @@ async def get_seller_with_details(
 
 @router.put("/{seller_id}", response_model=schemas.Seller)
 async def update_seller(
-    request: Request, seller_id: int, seller_data: schemas.SellerUpdate
+    request: Request,
+    seller_id: int,
+    seller_data: schemas.SellerUpdate,
+    current_seller: Seller = Depends(get_current_seller)
 ) -> schemas.Seller:
     """
-    Update seller
+    Update seller (only own seller account)
     """
     return await sellers_manager.update_seller(
-        request.state.session, seller_id, seller_data
+        request.state.session, seller_id, seller_data, current_seller
     )
 
 
 @router.delete("/{seller_id}", status_code=204)
-async def delete_seller(request: Request, seller_id: int) -> None:
+async def delete_seller(
+    request: Request,
+    seller_id: int,
+    current_seller: Seller = Depends(get_current_seller)
+) -> None:
     """
-    Delete seller
+    Delete seller (only own seller account)
     """
-    await sellers_manager.delete_seller(request.state.session, seller_id)
+    await sellers_manager.delete_seller(request.state.session, seller_id, current_seller)
 
 
 @router.get("/summary/stats", response_model=schemas.SellerSummary)
@@ -136,13 +145,14 @@ async def upload_seller_image(
     request: Request,
     seller_id: int,
     file: UploadFile = File(...),
-    order: int = Query(default=0, ge=0)
+    order: int = Query(default=0, ge=0),
+    current_seller: Seller = Depends(get_current_seller)
 ) -> schemas.SellerImage:
     """
-    Upload an image for a seller
+    Upload an image for a seller (only own seller account)
     """
     return await sellers_manager.upload_seller_image(
-        request.state.session, seller_id, file, order
+        request.state.session, seller_id, file, order, current_seller
     )
 
 
@@ -151,19 +161,24 @@ async def upload_seller_images(
     request: Request,
     seller_id: int,
     files: List[UploadFile] = File(...),
-    start_order: int = Query(default=0, ge=0)
+    start_order: int = Query(default=0, ge=0),
+    current_seller: Seller = Depends(get_current_seller)
 ) -> List[schemas.SellerImage]:
     """
-    Upload multiple images for a seller
+    Upload multiple images for a seller (only own seller account)
     """
     return await sellers_manager.upload_seller_images(
-        request.state.session, seller_id, files, start_order
+        request.state.session, seller_id, files, start_order, current_seller
     )
 
 
 @router.delete("/images/{image_id}", status_code=204)
-async def delete_seller_image(request: Request, image_id: int) -> None:
+async def delete_seller_image(
+    request: Request,
+    image_id: int,
+    current_seller: Seller = Depends(get_current_seller)
+) -> None:
     """
-    Delete a seller image
+    Delete a seller image (only own seller images)
     """
-    await sellers_manager.delete_seller_image(request.state.session, image_id)
+    await sellers_manager.delete_seller_image(request.state.session, image_id, current_seller)

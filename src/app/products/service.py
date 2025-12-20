@@ -48,7 +48,8 @@ class ProductsService:
             .where(Product.id == product_id)
             .options(
                 selectinload(Product.images),
-                selectinload(Product.attributes)
+                selectinload(Product.attributes),
+                selectinload(Product.categories)
             )
         )
         return result.scalar_one_or_none()
@@ -61,7 +62,8 @@ class ProductsService:
             select(Product)
             .options(
                 selectinload(Product.images),
-                selectinload(Product.attributes)
+                selectinload(Product.attributes),
+                selectinload(Product.categories)
             )
             .order_by(Product.name)
         )
@@ -71,13 +73,32 @@ class ProductsService:
         self, session: AsyncSession, page: int, page_size: int,
         article: Optional[str] = None,
         code: Optional[str] = None,
-        seller_id: Optional[int] = None
+        seller_id: Optional[int] = None,
+        category_ids: Optional[List[int]] = None
     ) -> tuple[List[Product], int]:
         """Get paginated list of products with optional filters"""
         # Build base query with filters
         base_query = select(Product)
         
-        # Apply filters
+        # Apply category filter if provided (AND logic - product must have all categories)
+        if category_ids is not None and len(category_ids) > 0:
+            # Subquery to check that product has all specified categories
+            category_count_subquery = (
+                select(
+                    product_category_relations.c.product_id,
+                    func.count(func.distinct(product_category_relations.c.category_id)).label('category_count')
+                )
+                .where(product_category_relations.c.category_id.in_(category_ids))
+                .group_by(product_category_relations.c.product_id)
+                .having(func.count(func.distinct(product_category_relations.c.category_id)) == len(category_ids))
+                .subquery()
+            )
+            base_query = base_query.join(
+                category_count_subquery,
+                Product.id == category_count_subquery.c.product_id
+            )
+        
+        # Apply other filters
         conditions = []
         if article is not None:
             conditions.append(Product.article == article)
@@ -90,7 +111,27 @@ class ProductsService:
             base_query = base_query.where(and_(*conditions))
         
         # Get total count with filters
-        count_query = select(func.count(Product.id))
+        count_query = select(func.count(func.distinct(Product.id)))
+        
+        # Apply category filter to count query (AND logic - product must have all categories)
+        if category_ids is not None and len(category_ids) > 0:
+            category_count_subquery = (
+                select(
+                    product_category_relations.c.product_id,
+                    func.count(func.distinct(product_category_relations.c.category_id)).label('category_count')
+                )
+                .where(product_category_relations.c.category_id.in_(category_ids))
+                .group_by(product_category_relations.c.product_id)
+                .having(func.count(func.distinct(product_category_relations.c.category_id)) == len(category_ids))
+                .subquery()
+            )
+            count_query = count_query.select_from(Product).join(
+                category_count_subquery,
+                Product.id == category_count_subquery.c.product_id
+            )
+        else:
+            count_query = count_query.select_from(Product)
+        
         if conditions:
             count_query = count_query.where(and_(*conditions))
         
@@ -103,7 +144,8 @@ class ProductsService:
             base_query
             .options(
                 selectinload(Product.images),
-                selectinload(Product.attributes)
+                selectinload(Product.attributes),
+                selectinload(Product.categories)
             )
             .order_by(Product.name)
             .limit(page_size)
@@ -122,7 +164,8 @@ class ProductsService:
             .where(Product.seller_id == seller_id)
             .options(
                 selectinload(Product.images),
-                selectinload(Product.attributes)
+                selectinload(Product.attributes),
+                selectinload(Product.categories)
             )
             .order_by(Product.name)
         )
@@ -138,7 +181,8 @@ class ProductsService:
             .where(ProductCategory.id == category_id)
             .options(
                 selectinload(Product.images),
-                selectinload(Product.attributes)
+                selectinload(Product.attributes),
+                selectinload(Product.categories)
             )
             .order_by(Product.name)
         )
@@ -185,7 +229,8 @@ class ProductsService:
             .where(Product.id == product_id)
             .options(
                 selectinload(Product.images),
-                selectinload(Product.attributes)
+                selectinload(Product.attributes),
+                selectinload(Product.categories)
             )
         )
         updated_product = result.scalar_one()
@@ -232,7 +277,8 @@ class ProductsService:
             .where(Product.id.in_(product_ids))
             .options(
                 selectinload(Product.images),
-                selectinload(Product.attributes)
+                selectinload(Product.attributes),
+                selectinload(Product.categories)
             )
             .order_by(Product.name)
         )
