@@ -57,6 +57,13 @@ class SellersService:
             )
             .returning(Seller)
         )
+        created_seller = result.scalar_one()
+        # Подгружаем images для возврата
+        result = await session.execute(
+            select(Seller)
+            .where(Seller.id == created_seller.id)
+            .options(selectinload(Seller.images))
+        )
         return result.scalar_one()
 
     async def get_seller_by_id(
@@ -184,23 +191,19 @@ class SellersService:
 
         # Update seller
         if update_data:
-            result = await session.execute(
+            await session.execute(
                 update(Seller)
                 .where(Seller.id == seller_id)
                 .values(**update_data)
-                .returning(Seller)
             )
-            updated_seller = result.scalar_one()
-        else:
-            # If no update data, just return current seller
-            result = await session.execute(
-                select(Seller)
-                .where(Seller.id == seller_id)
-                .options(selectinload(Seller.images))
-            )
-            updated_seller = result.scalar_one()
-
-        return updated_seller
+        
+        # Return updated seller with images loaded
+        result = await session.execute(
+            select(Seller)
+            .where(Seller.id == seller_id)
+            .options(selectinload(Seller.images))
+        )
+        return result.scalar_one()
 
     async def delete_seller(
         self, session: AsyncSession, seller_id: int
@@ -285,11 +288,17 @@ class SellersService:
         self, session: AsyncSession, seller_id: int, firebase_token: str
     ) -> Seller:
         """Update seller firebase_token field"""
-        result = await session.execute(
+        await session.execute(
             update(Seller)
             .where(Seller.id == seller_id)
             .values(firebase_token=firebase_token)
-            .returning(Seller)
+        )
+        
+        # Return updated seller with images loaded
+        result = await session.execute(
+            select(Seller)
+            .where(Seller.id == seller_id)
+            .options(selectinload(Seller.images))
         )
         return result.scalar_one()
 

@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
-from pydantic import BaseModel, Field, EmailStr, field_validator, ConfigDict
+from pydantic import BaseModel, Field, EmailStr, model_validator, ConfigDict
 import re
 
 if TYPE_CHECKING:
@@ -33,37 +33,20 @@ class SellerBase(BaseModel):
     verification_level: int = Field(..., ge=0, description="Verification level")
     registration_doc_url: str = Field(default="", max_length=2048, description="Registration document URL")
 
-    @field_validator('inn')
-    @classmethod
-    def validate_inn(cls, v, info):
-        """Validate INN format based on organization type"""
-        is_IP = info.data.get('is_IP')
-        
-        if is_IP:
-            # ИП: ИНН должен быть 12 цифр
-            if not re.match(r'^\d{12}$', v):
+    @model_validator(mode='after')
+    def validate_inn_ogrn(self):
+        """Validate INN and OGRN format based on organization type"""
+        if self.is_IP:
+            if not re.match(r'^\d{12}$', self.inn):
                 raise ValueError('ИНН для ИП должен содержать 12 цифр')
-        else:
-            # Юридические лица: ИНН должен быть 10 цифр
-            if not re.match(r'^\d{10}$', v):
-                raise ValueError('ИНН для юридического лица должен содержать 10 цифр')
-        return v
-
-    @field_validator('ogrn')
-    @classmethod
-    def validate_ogrn(cls, v, info):
-        """Validate OGRN format based on organization type"""
-        is_IP = info.data.get('is_IP')
-        
-        if is_IP:
-            # ИП: ОГРНИП должен быть 15 цифр
-            if not re.match(r'^\d{15}$', v):
+            if not re.match(r'^\d{15}$', self.ogrn):
                 raise ValueError('ОГРНИП для ИП должен содержать 15 цифр')
         else:
-            # Юридические лица: ОГРН должен быть 13 цифр
-            if not re.match(r'^\d{13}$', v):
+            if not re.match(r'^\d{10}$', self.inn):
+                raise ValueError('ИНН для юридического лица должен содержать 10 цифр')
+            if not re.match(r'^\d{13}$', self.ogrn):
                 raise ValueError('ОГРН для юридического лица должен содержать 13 цифр')
-        return v
+        return self
 
 
 class SellerCreate(BaseModel):
@@ -76,37 +59,20 @@ class SellerCreate(BaseModel):
     is_IP: bool = Field(..., description="Is Individual Entrepreneur")
     ogrn: str = Field(..., min_length=13, max_length=15, description="OGRN")
 
-    @field_validator('inn')
-    @classmethod
-    def validate_inn(cls, v, info):
-        """Validate INN format based on organization type"""
-        is_IP = info.data.get('is_IP')
-        
-        if is_IP:
-            # ИП: ИНН должен быть 12 цифр
-            if not re.match(r'^\d{12}$', v):
+    @model_validator(mode='after')
+    def validate_inn_ogrn(self):
+        """Validate INN and OGRN format based on organization type"""
+        if self.is_IP:
+            if not re.match(r'^\d{12}$', self.inn):
                 raise ValueError('ИНН для ИП должен содержать 12 цифр')
-        else:
-            # Юридические лица: ИНН должен быть 10 цифр
-            if not re.match(r'^\d{10}$', v):
-                raise ValueError('ИНН для юридического лица должен содержать 10 цифр')
-        return v
-
-    @field_validator('ogrn')
-    @classmethod
-    def validate_ogrn(cls, v, info):
-        """Validate OGRN format based on organization type"""
-        is_IP = info.data.get('is_IP')
-        
-        if is_IP:
-            # ИП: ОГРНИП должен быть 15 цифр
-            if not re.match(r'^\d{15}$', v):
+            if not re.match(r'^\d{15}$', self.ogrn):
                 raise ValueError('ОГРНИП для ИП должен содержать 15 цифр')
         else:
-            # Юридические лица: ОГРН должен быть 13 цифр
-            if not re.match(r'^\d{13}$', v):
+            if not re.match(r'^\d{10}$', self.inn):
+                raise ValueError('ИНН для юридического лица должен содержать 10 цифр')
+            if not re.match(r'^\d{13}$', self.ogrn):
                 raise ValueError('ОГРН для юридического лица должен содержать 13 цифр')
-        return v
+        return self
 
 
 

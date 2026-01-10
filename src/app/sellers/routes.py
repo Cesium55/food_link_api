@@ -14,7 +14,7 @@ router = APIRouter(prefix="/sellers", tags=["sellers"])
 sellers_manager = SellersManager()
 
 
-@router.post("", response_model=schemas.SellerBase, status_code=201)
+@router.post("", response_model=schemas.Seller, status_code=201)
 async def create_seller(
     request: Request, seller_data: schemas.SellerCreate, current_user: User = Depends(get_current_user)
 ):
@@ -58,15 +58,6 @@ async def get_seller(request: Request, seller_id: int) -> schemas.PublicSeller:
     """
     return await sellers_manager.get_seller_by_id(request.state.session, seller_id)
 
-
-# NOTE: This endpoint is not exposed for security reasons (exposes sensitive data)
-# Use GET /me for authenticated users to get their own seller data
-# @router.get("/email/{email}", response_model=schemas.Seller)
-# async def get_seller_by_email(request: Request, email: str) -> schemas.Seller:
-#     """
-#     Get seller by email
-#     """
-#     return await sellers_manager.get_seller_by_email(request.state.session, email)
 
 
 @router.get("/{seller_id}/with-shops", response_model=schemas.PublicSellerWithShopPoints)

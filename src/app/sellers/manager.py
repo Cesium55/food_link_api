@@ -38,9 +38,8 @@ class SellersManager:
         session: AsyncSession,
         seller_data: schemas.SellerCreate,
         current_user: User,
-    ) -> Seller:
+    ) -> schemas.Seller:
         """Создать продавца для текущего пользователя"""
-
 
         # Проверка: у пользователя уже есть продавец
         existing_seller = await self.service.get_seller_by_master_id(
@@ -58,7 +57,7 @@ class SellersManager:
         
         await session.commit()
 
-        return seller
+        return schemas.Seller.model_validate(seller)
 
     async def get_sellers(self, session: AsyncSession) -> List[schemas.PublicSeller]:
         """Get list of sellers"""
