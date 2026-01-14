@@ -217,11 +217,14 @@ class ProductsManager:
             await verify_seller_owns_resource(product.seller_id, current_seller)
         
         updated_product = await self.service.update_product(session, product_id, product_data)
-        await session.commit()
         
-        product_schema = schemas.Product.model_validate(updated_product)
+        # Commit changes (including category updates)
+        await session.commit()
+
+        reloaded_product = await self.service.get_product_by_id(session, product_id)
+        product_schema = schemas.Product.model_validate(reloaded_product)
         # Add category IDs from loaded categories
-        product_schema.category_ids = [cat.id for cat in updated_product.categories]
+        product_schema.category_ids = [cat.id for cat in reloaded_product.categories]
         
         return product_schema
 

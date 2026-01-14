@@ -307,6 +307,10 @@ class ProductsService:
                 product_category_relations.c.product_id == product_id
             )
         )
+        
+        # Add new categories if provided
+        if category_ids:
+            await self._add_categories_to_product(session, product_id, category_ids)
 
     async def _add_attributes_to_product(
         self, session: AsyncSession, product_id: int, attributes: List[schemas.ProductAttributeCreateInline]
