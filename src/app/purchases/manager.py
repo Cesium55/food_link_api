@@ -23,6 +23,7 @@ from app.auth.jwt_utils import JWTUtils
 from app.payments.models import PaymentStatus
 from utils.pagination import PaginatedResponse
 from logger import get_sync_logger
+from utils.debug_logger import hard_log
 
 logger = get_sync_logger(__name__)
 
@@ -52,6 +53,7 @@ class PurchasesManager:
         All offers must be valid, otherwise an error is raised.
         Uses SELECT FOR UPDATE to prevent race conditions.
         """
+        hard_log(f"create_purchase START for user_id={user_id}, offers={len(purchase_data.offers)}", "MANAGER")
         
         if not purchase_data.offers:
             raise HTTPException(
@@ -60,7 +62,9 @@ class PurchasesManager:
             )
 
         # Check if user already has a pending purchase (with lock to prevent race conditions)
+        hard_log(f"Checking for existing pending purchase for user_id={user_id}", "MANAGER")
         existing_pending = await self.service.get_pending_purchase_by_user(session, user_id, for_update=True)
+        hard_log(f"Existing pending check complete: found={existing_pending is not None}", "MANAGER")
         if existing_pending:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -69,9 +73,11 @@ class PurchasesManager:
 
         # Get all offer IDs to lock them at once (prevents deadlocks)
         all_offer_ids = [offer.offer_id for offer in purchase_data.offers]
+        hard_log(f"Locking offers: {all_offer_ids}", "MANAGER")
         locked_offers = await self.offers_service.get_offers_by_ids_for_update(
             session, all_offer_ids
         )
+        hard_log(f"Offers locked successfully: {len(locked_offers)} offers", "MANAGER")
         locked_offers_dict = {offer.id: offer for offer in locked_offers}
         
         purchase_offers_data = []
@@ -126,18 +132,22 @@ class PurchasesManager:
             successful_offer_ids.append(offer_id)
         
         # Update reserved_count for all offers
+        hard_log(f"Updating reserved counts for {len(purchase_offers_data)} offers", "MANAGER")
         for offer_data in purchase_offers_data:
             await self.offers_service.update_offer_reserved_count(
                 session, offer_data["offer_id"], offer_data["quantity"]
             )
         
         # Create purchase
+        hard_log(f"Creating purchase for user_id={user_id}, total_cost={total_cost}", "MANAGER")
         purchase = await self.service.create_purchase(session, user_id, total_cost)
+        hard_log(f"Purchase created with id={purchase.id}", "MANAGER")
         
         # Create purchase offers
         purchase_offers = await self.service.create_purchase_offers(
             session, purchase.id, purchase_offers_data
         )
+        hard_log(f"Purchase offers created: {len(purchase_offers)} offers", "MANAGER")
         
         # Create offer results (all offers were successful in this method)
         offer_results_data = []
@@ -153,17 +163,19 @@ class PurchasesManager:
         await self.service.create_purchase_offer_results(session, purchase.id, offer_results_data)
         
         # Create payment for this purchase (in the same transaction)
+        hard_log(f"Creating payment for purchase_id={purchase.id}", "MANAGER")
         await self.payments_manager.create_payment_for_purchase(
             session, purchase.id, purchase.total_cost, base_url
         )
+        hard_log(f"Payment created successfully", "MANAGER")
         
-        # Commit transaction (releases locks)
-        await session.commit()
+        
         
         # Send notifications to sellers about reserved items
-        await self._notify_sellers_about_reservation(session, purchase.id)
+        # await self._notify_sellers_about_reservation(session, purchase.id)
         
         # Schedule Celery task to check purchase expiration
+        hard_log(f"Scheduling Celery task", "MANAGER")
         try:
             check_purchase_expiration.apply_async(
                 args=[purchase.id],
@@ -171,16 +183,24 @@ class PurchasesManager:
             )
         except Exception as e:
             # Log error but don't fail the purchase creation
-            print(f"Warning: Failed to schedule Celery task for purchase {purchase.id}: {e}")
+            hard_log(f"Failed to schedule Celery task: {e}", "MANAGER")
         
         # Reload offers to get updated reserved_count values for response
+        hard_log(f"Reloading offers", "MANAGER")
         updated_offers = await self.offers_service.get_offers_by_ids(session, successful_offer_ids)
         offers_dict = {offer.id: offer for offer in updated_offers}
         
         # Load offer results
         offer_results = await self.service.get_purchase_offer_results_by_purchase_id(session, purchase.id)
+
+
+        # Commit transaction (releases locks)
+        hard_log(f"Committing transaction", "MANAGER")
+        await session.commit()
+        hard_log(f"Transaction committed successfully", "MANAGER")
         
         # Convert purchase to schema
+        hard_log(f"create_purchase COMPLETE for purchase_id={purchase.id}", "MANAGER")
         return self._purchase_to_schema_with_offers(purchase, purchase_offers, offers_dict, offer_results)
 
     @handle_alchemy_error
@@ -196,6 +216,7 @@ class PurchasesManager:
         Processes each offer individually and collects results.
         Uses SELECT FOR UPDATE to prevent race conditions.
         """
+        hard_log(f"create_purchase_with_partial_success START - user_id={user_id}, offers={len(purchase_data.offers)}", "MANAGER")
         
         if not purchase_data.offers:
             raise HTTPException(
@@ -204,7 +225,9 @@ class PurchasesManager:
             )
 
         # Check if user already has a pending purchase (with lock to prevent race conditions)
+        hard_log(f"Checking for existing pending purchase (with lock)...", "MANAGER")
         existing_pending = await self.service.get_pending_purchase_by_user(session, user_id, for_update=True)
+        hard_log(f"Existing pending check complete: found={existing_pending is not None}", "MANAGER")
         if existing_pending:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -219,9 +242,11 @@ class PurchasesManager:
         
         # Get all offer IDs to lock them at once (prevents deadlocks)
         all_offer_ids = [offer.offer_id for offer in purchase_data.offers]
+        hard_log(f"Locking offers: {all_offer_ids}", "MANAGER-PARTIAL")
         locked_offers = await self.offers_service.get_offers_by_ids_for_update(
             session, all_offer_ids
         )
+        hard_log(f"Offers locked: {len(locked_offers)} offers", "MANAGER-PARTIAL")
         locked_offers_dict = {offer.id: offer for offer in locked_offers}
         
         # Process each offer from the request
@@ -305,13 +330,17 @@ class PurchasesManager:
             )
         
         # Update reserved_count for successful offers
+        hard_log(f"Updating reserved counts for {len(purchase_offers_data)} offers", "MANAGER-PARTIAL")
         for offer_data in purchase_offers_data:
             await self.offers_service.update_offer_reserved_count(
                 session, offer_data["offer_id"], offer_data["quantity"]
             )
+        hard_log(f"Reserved counts updated", "MANAGER-PARTIAL")
         
         # Create purchase
+        hard_log(f"Creating purchase for user_id={user_id}, total_cost={total_cost}", "MANAGER-PARTIAL")
         purchase = await self.service.create_purchase(session, user_id, total_cost)
+        hard_log(f"Purchase created with id={purchase.id}", "MANAGER-PARTIAL")
         
         # Create purchase offers
         purchase_offers = await self.service.create_purchase_offers(
@@ -333,12 +362,16 @@ class PurchasesManager:
         await self.service.create_purchase_offer_results(session, purchase.id, offer_results_data)
         
         # Create payment for this purchase (in the same transaction)
+        hard_log(f"Creating payment for purchase_id={purchase.id}", "MANAGER-PARTIAL")
         await self.payments_manager.create_payment_for_purchase(
             session, purchase.id, total_cost, base_url
         )
+        hard_log(f"Payment created", "MANAGER-PARTIAL")
         
         # Commit transaction (releases locks)
+        hard_log(f"Committing transaction", "MANAGER-PARTIAL")
         await session.commit()
+        hard_log(f"Transaction committed", "MANAGER-PARTIAL")
         
         # Send notifications to sellers about reserved items
         await self._notify_sellers_about_reservation(session, purchase.id)

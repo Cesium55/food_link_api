@@ -32,6 +32,61 @@ class PaymentsManager:
         self.notification_manager = FirebaseNotificationManager()
         self.sellers_manager = SellersManager()
 
+    async def get_batch(self, session: AsyncSession, ids: List[int]):
+        """Returns payments list by list of their ids"""
+        return await self.service.get_batch(session, ids)
+
+    async def sync_batch_status(
+        self, session: AsyncSession, ids: List[int]
+    ) -> Dict[str, Any]:
+        """Sync payment statuses with YooKassa for multiple payments"""
+        payments = await self.service.get_batch(session, ids)
+        
+        results = {
+            "success": [],
+            "failed": [],
+            "skipped": []
+        }
+        
+        for payment in payments:
+            try:
+                # Skip payments without YooKassa ID
+                if not payment.yookassa_payment_id:
+                    results["skipped"].append({
+                        "id": payment.id,
+                        "reason": "No YooKassa payment ID"
+                    })
+                    continue
+                
+                old_status = payment.status
+                
+                # Get status from YooKassa
+                async with create_yookassa_client() as yookassa_client:
+                    yookassa_data = await yookassa_client.get_payment(
+                        payment.yookassa_payment_id
+                    )
+                    yookassa_status = yookassa_data.get("status")
+                
+                # Update status in DB
+                await self.service.update_payment_status(
+                    session, payment.id, yookassa_status
+                )
+                
+                results["success"].append({
+                    "id": payment.id,
+                    "old_status": old_status,
+                    "new_status": yookassa_status
+                })
+                
+            except Exception as e:
+                results["failed"].append({
+                    "id": payment.id,
+                    "error": str(e)
+                })
+        
+        await session.commit()
+        return results
+
     async def create_payment_for_purchase(
         self,
         session: AsyncSession,

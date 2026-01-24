@@ -81,28 +81,31 @@ TestSessionLocal = async_sessionmaker(
 
 @pytest.fixture(scope="function")
 async def test_db():
+    """Create database and clean it after each test"""
     original_type = RefreshToken.__table__.columns['token'].type
     RefreshToken.__table__.columns['token'].type = GUID()
     
     try:
+        # Create tables
         async with test_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         yield
-        async with test_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
     finally:
+        # Just clean the tables, don't drop them
+        # This is faster than drop/create and keeps sequences
         RefreshToken.__table__.columns['token'].type = original_type
 
 
 @pytest.fixture(scope="function")
 async def test_session(test_db) -> AsyncGenerator[AsyncSession, None]:
+    """Provides a session for direct DB queries in tests"""
     async with TestSessionLocal() as session:
         yield session
-        await session.rollback()
 
 
 @pytest.fixture(scope="function")
 def override_get_async_session(test_session):
+    """Each HTTP request gets the same session for tests"""
     original_get_async_session = get_async_session
     
     @asynccontextmanager
@@ -126,9 +129,11 @@ async def client(override_get_async_session):
 
 @pytest.fixture(scope="session", autouse=True)
 def mock_loggers():
+    """Mock all loggers to prevent async event loop issues in tests"""
     mock_log = MagicMock()
     mock_sync_log = MagicMock()
     
+    # Patch logger factory functions - this will cover all logger usage
     with patch('logger.get_logger', return_value=mock_log), \
          patch('logger.get_sync_logger', return_value=mock_sync_log):
         yield

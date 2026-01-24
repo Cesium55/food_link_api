@@ -18,10 +18,16 @@ from app.maps.routes import router as maps_router
 from app.purchases.routes import router as purchases_router
 from app.payments.routes import router as payments_router
 
+
+import app.admin as admin_models
+
 from middleware.insert_session_middleware import InsertSessionMiddleware
 from middleware.timing_middleware import TimingMiddleware
 from middleware.response_wrapper_middleware import ResponseWrapperMiddleware
 from utils.image_manager import ImageManager
+
+from sqladmin import Admin
+from database import async_engine
 
 
 @asynccontextmanager
@@ -67,6 +73,25 @@ app.include_router(purchases_router)
 app.include_router(payments_router)
 app.include_router(debug_router)
 app.include_router(maps_router)
+
+admin = Admin(app, async_engine, base_url="/addmin-pnl")
+admin.add_view(admin_models.UserAdmin)
+admin.add_view(admin_models.RefreshTokenAdmin)
+admin.add_view(admin_models.OfferAdmin)
+admin.add_view(admin_models.PricingStrategyAdmin)
+admin.add_view(admin_models.PricingStrategyStepAdmin)
+admin.add_view(admin_models.UserPaymentAdmin)
+admin.add_view(admin_models.ProductCategoryAdmin)
+admin.add_view(admin_models.ProductAdmin)
+admin.add_view(admin_models.ProductImageAdmin)
+admin.add_view(admin_models.ProductAttributeAdmin)
+admin.add_view(admin_models.PurchaseAdmin)
+admin.add_view(admin_models.PurchaseOfferAdmin)
+admin.add_view(admin_models.PurchaseOfferResultAdmin)
+admin.add_view(admin_models.SellerAdmin)
+admin.add_view(admin_models.SellerImageAdmin)
+admin.add_view(admin_models.ShopPointAdmin)
+admin.add_view(admin_models.ShopPointImageAdmin)
 
 
 @app.get("/")

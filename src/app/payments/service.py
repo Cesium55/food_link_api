@@ -9,6 +9,13 @@ from app.payments.models import UserPayment, PaymentStatus
 class PaymentsService:
     """Service for working with payments"""
 
+
+    async def get_batch(self, session: AsyncSession, ids: List[int]):
+        result = await session.execute(
+            select(UserPayment).where(UserPayment.id.in_(ids))
+        )
+        return result.scalars().all()
+
     async def create_payment(
         self,
         session: AsyncSession,
@@ -120,4 +127,14 @@ class PaymentsService:
         """Delete payment"""
         await session.execute(
             delete(UserPayment).where(UserPayment.id == payment_id)
+        )
+
+    async def update_payment_status(
+        self, session: AsyncSession, payment_id: int, status: str
+    ) -> None:
+        """Update payment status"""
+        await session.execute(
+            update(UserPayment)
+            .where(UserPayment.id == payment_id)
+            .values(status=status)
         )

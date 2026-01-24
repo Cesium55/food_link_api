@@ -7,6 +7,7 @@ from utils.auth_dependencies import get_current_user
 from app.auth.models import User
 from utils.response_logger import log_response
 from utils.pagination import PaginatedResponse
+from utils.debug_logger import hard_log
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
@@ -15,20 +16,25 @@ purchases_manager = PurchasesManager()
 
 
 @router.post("", response_model=schemas.PurchaseWithOffers, status_code=201)
+@log_response()
 async def create_purchase(
     request: Request,
     purchase_data: schemas.PurchaseCreate,
     current_user: User = Depends(get_current_user)
 ) -> schemas.PurchaseWithOffers:
     """
-    Create a new purchase order.
-    All offers must be valid, otherwise an error is raised.
+    Create a new purchase order with partial success support.
+    Processes each offer individually and returns detailed results.
     Validates availability, checks expiration dates, reserves items, and calculates total cost.
+    If an offer has insufficient quantity, it will be added with available quantity.
     """
+    hard_log(f"POST /purchases START - user_id={current_user.id}, offers={len(purchase_data.offers)}", "ROUTES")
     base_url = f"{request.url.scheme}://{request.url.netloc}"
-    return await purchases_manager.create_purchase(
+    result = await purchases_manager.create_purchase_with_partial_success(
         request.state.session, current_user.id, purchase_data, base_url
     )
+    hard_log(f"POST /purchases COMPLETE - purchase_id={result.purchase.id}", "ROUTES")
+    return result.purchase
 
 
 @router.post("/with-partial-success", response_model=schemas.PurchaseWithOffers, status_code=201)
