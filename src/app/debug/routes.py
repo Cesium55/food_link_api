@@ -4,6 +4,7 @@ import json
 import asyncio
 from pydantic import BaseModel, Field, model_validator
 from app.debug.init import initialize_categories_from_json_file
+from app.debug.recalculate_purchase_statuses import recalculate_purchase_statuses
 from app.purchases.tasks import cancel_all_expired_purchases
 from app.auth.service import AuthService
 from app.offers.init_pricing_strategies import init_pricing_strategies
@@ -613,6 +614,55 @@ async def delete_user(request: Request, user_id: int) -> Dict[str, Any]:
         import traceback
         error_details = {
             "error": "Failed to delete user",
+            "message": error_message,
+            "type": error_type
+        }
+        
+        if settings.debug:
+            error_details["traceback"] = traceback.format_exc()
+        
+        raise HTTPException(
+            status_code=500,
+            detail=error_details
+        )
+
+
+@router.post("/recalculate-purchase-statuses")
+async def recalculate_purchase_statuses_endpoint(
+    request: Request
+) -> Dict[str, Any]:
+    """
+    Recalculate purchase statuses based on fulfillment status.
+    
+    Checks all purchases (except completed and cancelled) and updates
+    their status to 'completed' if all offers are fulfilled.
+    
+    This endpoint is useful for fixing purchase statuses that may have been
+    incorrectly set due to bugs or race conditions.
+    """
+    try:
+        result = await recalculate_purchase_statuses(
+            session=request.state.session
+        )
+        
+        return {
+            "success": True,
+            "message": result["message"],
+            "statistics": {
+                "processed_count": result["processed_count"],
+                "updated_count": result["updated_count"],
+                "skipped_count": result["skipped_count"]
+            },
+            "updated_purchases": result["updated_purchases"],
+            "skipped_purchases": result["skipped_purchases"]
+        }
+    except Exception as e:
+        error_message = str(e)
+        error_type = type(e).__name__
+        
+        import traceback
+        error_details = {
+            "error": "Failed to recalculate purchase statuses",
             "message": error_message,
             "type": error_type
         }

@@ -1,0 +1,636 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<div class="container-fluid" style="padding: 1rem; background: #f8f9fa;">
+    <div style="max-width: 1400px; margin: 0 auto;">
+        <!-- Header -->
+        <div style="margin-bottom: 1rem;">
+            <h1 style="font-size: 1.75rem; font-weight: 600; color: #1a1a1a; margin: 0;">Purchase Dashboard</h1>
+            <p style="color: #6b7280; margin-top: 0.25rem; margin: 0; font-size: 0.875rem;">Last 30 days statistics</p>
+        </div>
+
+        <!-- Summary Cards -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1rem;">
+            <!-- Total Revenue -->
+            <div style="background: white; border-radius: 12px; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="color: #6b7280; font-size: 0.75rem; margin: 0 0 0.25rem 0;">Total Revenue</p>
+                        <h2 id="total-revenue" style="font-size: 1.5rem; font-weight: 700; color: #1a1a1a; margin: 0;">₽0</h2>
+                    </div>
+                    <div style="background: #10b981; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <svg width="16" height="16" fill="white" viewBox="0 0 24 24">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Average Order Value -->
+            <div style="background: white; border-radius: 12px; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="color: #6b7280; font-size: 0.75rem; margin: 0 0 0.25rem 0;">Avg Order Value</p>
+                        <h2 id="avg-order-value" style="font-size: 1.5rem; font-weight: 700; color: #1a1a1a; margin: 0;">₽0</h2>
+                    </div>
+                    <div style="background: #3b82f6; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <svg width="16" height="16" fill="white" viewBox="0 0 24 24">
+                            <path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.15.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12L8.1 13h7.45c.75 0 1.41-.41 1.75-1.03L21.7 4H5.21l-.94-2H1zm16 16c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Conversion Rate -->
+            <div style="background: white; border-radius: 12px; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="color: #6b7280; font-size: 0.75rem; margin: 0 0 0.25rem 0;">Conversion Rate</p>
+                        <h2 id="conversion-rate" style="font-size: 1.5rem; font-weight: 700; color: #1a1a1a; margin: 0;">0%</h2>
+                    </div>
+                    <div style="background: #10b981; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <svg width="16" height="16" fill="white" viewBox="0 0 24 24">
+                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Total Purchases -->
+            <div style="background: white; border-radius: 12px; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="color: #6b7280; font-size: 0.75rem; margin: 0 0 0.25rem 0;">Total Purchases</p>
+                        <h2 id="total-purchases" style="font-size: 1.5rem; font-weight: 700; color: #1a1a1a; margin: 0;">0</h2>
+                    </div>
+                    <div style="background: #8b5cf6; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <svg width="16" height="16" fill="white" viewBox="0 0 24 24">
+                            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 1.5rem; margin-bottom: 1rem; align-items: stretch;">
+            <!-- Combined Histogram Chart -->
+            <div style="background: white; border-radius: 12px; padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 style="font-size: 1rem; font-weight: 600; color: #1a1a1a; margin: 0;">Purchases Analysis</h3>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <label for="chart-type-select" style="font-size: 0.875rem; color: #6b7280; margin-right: 0.5rem;">View:</label>
+                        <select id="chart-type-select" onchange="switchChartType()" style="padding: 0.5rem 0.75rem; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; background: white; color: #1a1a1a; cursor: pointer;">
+                            <option value="purchases">Purchases per Day</option>
+                            <option value="revenue">Revenue per Day</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="status-filter-container" style="margin-bottom: 1rem; display: none;">
+                    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+                        <span style="font-size: 0.875rem; color: #6b7280;">Filter by status:</span>
+                        <div id="status-filter-pending" onclick="toggleStatus('pending')" style="display: flex; align-items: center; gap: 0.375rem; cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 6px; background: #fef3c7; border: 1px solid #f59e0b;">
+                            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #f59e0b;"></span>
+                            <span style="font-size: 0.875rem; color: #1a1a1a;">Pending</span>
+                        </div>
+                        <div id="status-filter-confirmed" onclick="toggleStatus('confirmed')" style="display: flex; align-items: center; gap: 0.375rem; cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 6px; background: #dbeafe; border: 1px solid #3b82f6;">
+                            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #3b82f6;"></span>
+                            <span style="font-size: 0.875rem; color: #1a1a1a;">Confirmed</span>
+                        </div>
+                        <div id="status-filter-completed" onclick="toggleStatus('completed')" style="display: flex; align-items: center; gap: 0.375rem; cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 6px; background: #d1fae5; border: 1px solid #10b981;">
+                            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #10b981;"></span>
+                            <span style="font-size: 0.875rem; color: #1a1a1a;">Completed</span>
+                        </div>
+                        <div id="status-filter-cancelled" onclick="toggleStatus('cancelled')" style="display: flex; align-items: center; gap: 0.375rem; cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 6px; background: #fee2e2; border: 1px solid #ef4444;">
+                            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ef4444;"></span>
+                            <span style="font-size: 0.875rem; color: #1a1a1a;">Cancelled</span>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="histogram-chart" style="max-height: 200px;"></canvas>
+            </div>
+
+            <!-- Status Distribution Chart -->
+            <div style="background: white; border-radius: 12px; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; height: 100%;">
+                <h3 style="font-size: 1rem; font-weight: 600; color: #1a1a1a; margin: 0 0 0.75rem 0; flex-shrink: 0;">Status Distribution</h3>
+                <div style="display: flex; align-items: stretch; gap: 1rem; flex: 1; min-height: 0;">
+                    <div style="flex: 1; min-width: 0; display: flex; justify-content: center; align-items: center; padding: 0;">
+                        <canvas id="status-chart"></canvas>
+                    </div>
+                    <div id="status-legend" style="display: flex; flex-direction: column; gap: 0.5rem; flex-shrink: 0; justify-content: center;">
+                        <!-- Legend will be inserted here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Row: Top Sellers -->
+        <div style="background: white; border-radius: 12px; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <h3 style="font-size: 0.9375rem; font-weight: 600; color: #1a1a1a; margin: 0;">Top Sellers</h3>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="sort-by-money" onclick="sortSellers('money')" style="background: #3b82f6; color: white; border: none; padding: 0.375rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.8125rem; font-weight: 500;">By Money</button>
+                    <button id="sort-by-count" onclick="sortSellers('count')" style="background: #e5e7eb; color: #374151; border: none; padding: 0.375rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.8125rem; font-weight: 500;">By Count</button>
+                </div>
+            </div>
+            <div id="top-sellers-list" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem;">
+                <!-- Sellers will be inserted here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+    const purchasesDataRaw = {{ last_month_purchases | safe }};
+    const purchasesData = Array.isArray(purchasesDataRaw) ? purchasesDataRaw : [];
+    const sellerImageUrlsRaw = {{ seller_image_urls | safe }};
+    const sellerImageUrls = typeof sellerImageUrlsRaw === 'object' ? sellerImageUrlsRaw : {};
+    
+    // Status colors mapping
+    const statusColors = {
+        'pending': '#f59e0b',
+        'confirmed': '#3b82f6',
+        'completed': '#10b981',
+        'cancelled': '#ef4444'
+    };
+
+    // Process data
+    function processData() {
+        const purchasesByDay = {};
+        const purchasesByDayAndStatus = {};
+        const revenueByDay = {};
+        const statusCounts = {
+            'pending': 0,
+            'confirmed': 0,
+            'completed': 0,
+            'cancelled': 0
+        };
+        let totalRevenue = 0;
+        const sellerStats = {};
+
+        purchasesData.forEach(purchase => {
+            // Count by status
+            statusCounts[purchase.status] = (statusCounts[purchase.status] || 0) + 1;
+
+            // Count purchases per day
+            const date = new Date(purchase.created_at).toISOString().split('T')[0];
+            purchasesByDay[date] = (purchasesByDay[date] || 0) + 1;
+
+            // Count purchases per day by status
+            if (!purchasesByDayAndStatus[date]) {
+                purchasesByDayAndStatus[date] = {
+                    'pending': 0,
+                    'confirmed': 0,
+                    'completed': 0,
+                    'cancelled': 0
+                };
+            }
+            purchasesByDayAndStatus[date][purchase.status] = (purchasesByDayAndStatus[date][purchase.status] || 0) + 1;
+
+            // Revenue per day (only for confirmed and completed)
+            if (purchase.status === 'confirmed' || purchase.status === 'completed') {
+                totalRevenue += purchase.total_cost;
+                revenueByDay[date] = (revenueByDay[date] || 0) + purchase.total_cost;
+            }
+
+            // Seller statistics
+            const sellersInPurchase = new Set();
+            if (purchase.purchase_offers && Array.isArray(purchase.purchase_offers)) {
+                purchase.purchase_offers.forEach(po => {
+                    if (po.seller_id) {
+                        if (!sellerStats[po.seller_id]) {
+                            sellerStats[po.seller_id] = {
+                                name: po.seller_name || `Seller #${po.seller_id}`,
+                                count: 0,
+                                money: 0
+                            };
+                        }
+                        // Count purchase only once per seller
+                        if (!sellersInPurchase.has(po.seller_id)) {
+                            sellerStats[po.seller_id].count += 1;
+                            sellersInPurchase.add(po.seller_id);
+                        }
+                        sellerStats[po.seller_id].money += (po.cost_at_purchase || 0) * (po.quantity || 0);
+                    }
+                });
+            }
+        });
+
+        return {
+            purchasesByDay,
+            purchasesByDayAndStatus,
+            revenueByDay,
+            statusCounts,
+            totalRevenue,
+            sellerStats
+        };
+    }
+
+    const processed = processData();
+
+    // Calculate additional metrics
+    const totalPurchases = purchasesData.length;
+    const successfulPurchases = processed.statusCounts.confirmed + processed.statusCounts.completed;
+    const avgOrderValue = totalPurchases > 0 ? processed.totalRevenue / totalPurchases : 0;
+    const conversionRate = totalPurchases > 0 ? (successfulPurchases / totalPurchases) * 100 : 0;
+
+    // Update summary cards
+    document.getElementById('total-revenue').textContent = `₽${processed.totalRevenue.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    document.getElementById('avg-order-value').textContent = `₽${avgOrderValue.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    document.getElementById('conversion-rate').textContent = `${conversionRate.toFixed(1)}%`;
+    document.getElementById('total-purchases').textContent = totalPurchases;
+
+    // Prepare chart data
+    const last30Days = [];
+    const today = new Date();
+    for (let i = 29; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        last30Days.push(date.toISOString().split('T')[0]);
+    }
+
+    // Chart instances
+    let histogramChart = null;
+    let currentChartType = 'purchases';
+    const statusFilters = {
+        'pending': true,
+        'confirmed': true,
+        'completed': true,
+        'cancelled': true
+    };
+
+    // Toggle status filter
+    function toggleStatus(status) {
+        statusFilters[status] = !statusFilters[status];
+        const element = document.getElementById(`status-filter-${status}`);
+        if (statusFilters[status]) {
+            element.style.opacity = '1';
+            element.style.borderWidth = '1px';
+        } else {
+            element.style.opacity = '0.5';
+            element.style.borderWidth = '2px';
+        }
+        updatePurchasesChart();
+    }
+
+    // Initialize histogram chart
+    function initHistogramChart(type) {
+        const ctx = document.getElementById('histogram-chart').getContext('2d');
+        
+        if (histogramChart) {
+            histogramChart.destroy();
+        }
+
+        let data, backgroundColor, label, yAxisCallback;
+
+        if (type === 'purchases') {
+            // Show status filter for purchases
+            document.getElementById('status-filter-container').style.display = 'flex';
+            updatePurchasesChart();
+            return;
+        } else {
+            // Hide status filter for revenue
+            document.getElementById('status-filter-container').style.display = 'none';
+            
+            const revenueDataArray = last30Days.map(date => processed.revenueByDay[date] || 0);
+            data = revenueDataArray;
+            backgroundColor = '#10b981';
+            label = 'Revenue (₽)';
+            yAxisCallback = function(value) {
+                return '₽' + value.toLocaleString('ru-RU');
+            };
+        }
+
+        histogramChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: last30Days.map(() => ''),
+                datasets: [{
+                    label: label,
+                    data: data,
+                    backgroundColor: backgroundColor,
+                    borderRadius: 0,
+                    borderSkipped: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                devicePixelRatio: 2,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const index = context[0].dataIndex;
+                                const date = new Date(last30Days[index]);
+                                return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: yAxisCallback || function(value) { return value; },
+                            stepSize: type === 'purchases' ? 1 : undefined
+                        }
+                    },
+                    x: {
+                        ticks: {
+                            display: false
+                        },
+                        grid: {
+                            display: false
+                        },
+                        maxBarThickness: 15,
+                        categoryPercentage: 0.15,
+                        barPercentage: 1.0
+                    }
+                }
+            }
+        });
+    }
+
+    // Update purchases chart with status filters
+    function updatePurchasesChart() {
+        const datasets = [];
+        const statusOrder = ['pending', 'confirmed', 'completed', 'cancelled'];
+        const activeStatuses = statusOrder.filter(s => statusFilters[s]);
+        const barWidth = 10; // Reduced by third (was 15)
+        
+        activeStatuses.forEach((status, index) => {
+            datasets.push({
+                label: status.charAt(0).toUpperCase() + status.slice(1),
+                data: last30Days.map(date => processed.purchasesByDayAndStatus[date]?.[status] || 0),
+                backgroundColor: statusColors[status],
+                borderRadius: 0,
+                borderSkipped: false
+            });
+        });
+
+        const ctx = document.getElementById('histogram-chart').getContext('2d');
+        
+        if (histogramChart) {
+            histogramChart.destroy();
+        }
+
+        histogramChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: last30Days.map(() => ''),
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                devicePixelRatio: 2,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const index = context[0].dataIndex;
+                                const date = new Date(last30Days[index]);
+                                return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        stacked: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    },
+                    x: {
+                        stacked: true,
+                        ticks: {
+                            display: false
+                        },
+                        grid: {
+                            display: false
+                        },
+                        maxBarThickness: 15,
+                        categoryPercentage: 0.15,
+                        barPercentage: 1.0
+                    }
+                }
+            }
+        });
+    }
+
+    // Initialize status filter styles
+    function initStatusFilters() {
+        Object.keys(statusFilters).forEach(status => {
+            const element = document.getElementById(`status-filter-${status}`);
+            if (element && statusFilters[status]) {
+                element.style.opacity = '1';
+                element.style.borderWidth = '1px';
+            }
+        });
+    }
+
+    // Switch chart type
+    function switchChartType() {
+        const select = document.getElementById('chart-type-select');
+        currentChartType = select.value;
+        initHistogramChart(currentChartType);
+    }
+
+    // Initialize with purchases chart
+    initHistogramChart('purchases');
+    initStatusFilters();
+
+    // Status distribution chart (doughnut)
+    const statusCanvas = document.getElementById('status-chart');
+    const statusCtx = statusCanvas.getContext('2d');
+    const statusLabels = Object.keys(processed.statusCounts);
+    const statusData = statusLabels.map(status => processed.statusCounts[status]);
+    const statusColorsArray = statusLabels.map(status => statusColors[status] || '#6b7280');
+    
+    // Set explicit size for canvas to make it larger - use maximum available space
+    // Use requestAnimationFrame to ensure container is rendered
+    requestAnimationFrame(() => {
+        const container = statusCanvas.parentElement;
+        const containerHeight = container.offsetHeight || 400;
+        const containerWidth = container.offsetWidth || 400;
+        // Use maximum available space - fill entire container
+        const chartSize = Math.min(containerWidth, containerHeight);
+        
+        statusCanvas.width = chartSize * 2; // For devicePixelRatio
+        statusCanvas.height = chartSize * 2;
+        statusCanvas.style.width = chartSize + 'px';
+        statusCanvas.style.height = chartSize + 'px';
+        
+        // Create chart after setting size
+        new Chart(statusCtx, {
+            type: 'doughnut',
+            data: {
+                labels: statusLabels.map(s => s.charAt(0).toUpperCase() + s.slice(1)),
+                datasets: [{
+                    data: statusData,
+                    backgroundColor: statusColorsArray,
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: false,
+                maintainAspectRatio: false,
+                devicePixelRatio: 2,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                layout: {
+                    padding: 0
+                }
+            }
+        });
+    });
+    
+    // Create custom legend
+    const legendContainer = document.getElementById('status-legend');
+    statusLabels.forEach((status, index) => {
+        const legendItem = document.createElement('div');
+        legendItem.style.cssText = 'display: flex; align-items: center; gap: 0.5rem;';
+        
+        const colorDot = document.createElement('div');
+        colorDot.style.cssText = `width: 12px; height: 12px; border-radius: 50%; background: ${statusColors[status]}; flex-shrink: 0;`;
+        
+        const label = document.createElement('span');
+        label.style.cssText = 'font-size: 0.8125rem; color: #1a1a1a;';
+        label.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        
+        const value = document.createElement('span');
+        value.style.cssText = 'font-size: 0.8125rem; color: #6b7280; margin-left: auto;';
+        value.textContent = statusData[index];
+        
+        legendItem.appendChild(colorDot);
+        legendItem.appendChild(label);
+        legendItem.appendChild(value);
+        legendContainer.appendChild(legendItem);
+    });
+
+    // Top sellers
+    let currentSort = 'money';
+    let sellersArray = Object.entries(processed.sellerStats).map(([id, stats]) => ({
+        id: parseInt(id),
+        ...stats
+    }));
+
+    function renderSellers(sortBy) {
+        currentSort = sortBy;
+        
+        // Update button styles
+        document.getElementById('sort-by-money').style.background = sortBy === 'money' ? '#3b82f6' : '#e5e7eb';
+        document.getElementById('sort-by-money').style.color = sortBy === 'money' ? 'white' : '#374151';
+        document.getElementById('sort-by-count').style.background = sortBy === 'count' ? '#3b82f6' : '#e5e7eb';
+        document.getElementById('sort-by-count').style.color = sortBy === 'count' ? 'white' : '#374151';
+
+        // Sort sellers
+        sellersArray.sort((a, b) => {
+            if (sortBy === 'money') {
+                return b.money - a.money;
+            } else {
+                return b.count - a.count;
+            }
+        });
+
+        // Render top 5
+        const top5 = sellersArray.slice(0, 5);
+        const container = document.getElementById('top-sellers-list');
+        container.innerHTML = '';
+
+        if (top5.length === 0) {
+            container.innerHTML = '<p style="color: #6b7280; text-align: center; padding: 1rem; grid-column: 1 / -1;">No sellers data available</p>';
+            return;
+        }
+
+        top5.forEach((seller, index) => {
+            const sellerDiv = document.createElement('div');
+            sellerDiv.style.cssText = 'display: flex; flex-direction: column; padding: 0.75rem; background: #f9fafb; border-radius: 8px; gap: 0.5rem;';
+            
+            const topRow = document.createElement('div');
+            topRow.style.cssText = 'display: flex; align-items: center; gap: 0.5rem;';
+            
+            // Seller image
+            const imageDiv = document.createElement('div');
+            imageDiv.style.cssText = 'width: 48px; height: 48px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: #e5e7eb; display: flex; align-items: center; justify-content: center;';
+            const imageUrl = sellerImageUrls[seller.id];
+            if (imageUrl && imageUrl !== 'NO_IMAGE' && !imageUrl.startsWith('ERROR:')) {
+                const img = document.createElement('img');
+                img.src = imageUrl;
+                img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+                img.alt = seller.name || `Seller #${seller.id}`;
+                img.onerror = function() {
+                    this.style.display = 'none';
+                    imageDiv.innerHTML = `<span style="color: #ef4444; font-size: 0.6rem; word-break: break-all; padding: 0.25rem;">${imageUrl}</span>`;
+                };
+                imageDiv.appendChild(img);
+            } else {
+                const debugText = imageUrl && imageUrl.startsWith('ERROR:') ? imageUrl : (imageUrl || 'NO_IMAGE');
+                imageDiv.innerHTML = `<span style="color: #ef4444; font-size: 0.6rem; word-break: break-all; padding: 0.25rem;">${debugText}</span>`;
+            }
+            
+            const infoDiv = document.createElement('div');
+            infoDiv.style.cssText = 'display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 0.25rem;';
+            
+            const nameDiv = document.createElement('div');
+            nameDiv.textContent = (seller.name || `Seller #${seller.id}`).substring(0, 20);
+            nameDiv.style.cssText = 'font-weight: 500; color: #1a1a1a; font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+            
+            const rankDiv = document.createElement('div');
+            rankDiv.style.cssText = `display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: ${index < 3 ? '#3b82f6' : '#e5e7eb'}; color: ${index < 3 ? 'white' : '#374151'}; font-weight: 600; font-size: 0.7rem;`;
+            rankDiv.textContent = index + 1;
+            
+            const nameRow = document.createElement('div');
+            nameRow.style.cssText = 'display: flex; align-items: center; gap: 0.375rem;';
+            nameRow.appendChild(nameDiv);
+            nameRow.appendChild(rankDiv);
+            
+            infoDiv.appendChild(nameRow);
+            
+            const statsRow = document.createElement('div');
+            statsRow.style.cssText = 'display: flex; flex-direction: column; gap: 0.25rem;';
+            
+            const countDiv = document.createElement('div');
+            countDiv.style.cssText = 'font-size: 0.75rem; color: #6b7280;';
+            countDiv.innerHTML = `<span style="font-weight: 600; color: #1a1a1a;">${seller.count}</span> purchases`;
+            
+            const moneyDiv = document.createElement('div');
+            moneyDiv.style.cssText = 'font-size: 0.75rem; color: #6b7280;';
+            moneyDiv.innerHTML = `<span style="font-weight: 600; color: #1a1a1a;">₽${seller.money.toLocaleString('ru-RU', {minimumFractionDigits: 0, maximumFractionDigits: 0})}</span>`;
+            
+            statsRow.appendChild(countDiv);
+            statsRow.appendChild(moneyDiv);
+            
+            infoDiv.appendChild(statsRow);
+            
+            topRow.appendChild(imageDiv);
+            topRow.appendChild(infoDiv);
+            
+            sellerDiv.appendChild(topRow);
+            
+            container.appendChild(sellerDiv);
+        });
+    }
+
+    function sortSellers(sortBy) {
+        renderSellers(sortBy);
+    }
+
+    // Initial render
+    renderSellers('money');
+</script>
+{% endblock %}

@@ -65,12 +65,26 @@ services:
       AUTH_ENABLE_EMAIL: ${AUTH_ENABLE_EMAIL:-true}
       AUTH_ENABLE_PHONE: ${AUTH_ENABLE_PHONE:-true}
 
+
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      PURCHASE_EXPIRATION_SECONDS: ${PURCHASE_EXPIRATION_SECONDS}
+      YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID}
+      YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY}
+      YOOKASSA_WEBHOOK_URL: ${YOOKASSA_WEBHOOK_URL}
+
     ports:
       - "${SERVER_PORT}:8000"
     networks:
       - food_link_network
     volumes:
-      - .:/app
+      - ./src:/app/src
+      - ./run.py:/app/run.py
+      - ./run.sh:/app/run.sh
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./.python-version:/app/.python-version
+      - ./uv.lock:/app/uv.lock
+      - ./keys:/app/keys
     command: ["uv", "run", "python", "run.py"]
     depends_on:
       - postgres
@@ -106,7 +120,13 @@ services:
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
       PURCHASE_EXPIRATION_SECONDS: ${PURCHASE_EXPIRATION_SECONDS:-30}
     volumes:
-      - .:/app
+      - ./src:/app/src
+      - ./run.py:/app/run.py
+      - ./run_celery.py:/app/run_celery.py
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./.python-version:/app/.python-version
+      - ./uv.lock:/app/uv.lock
+      - ./keys:/app/keys
     networks:
       - food_link_network
     depends_on:

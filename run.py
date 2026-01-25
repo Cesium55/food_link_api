@@ -29,5 +29,7 @@ if __name__ == "__main__":
         host=host,
         port=port,
         reload=debug,
-        log_level="info"
+        log_level="info",
+        proxy_headers=True,
+        forwarded_allow_ips="*"
     )

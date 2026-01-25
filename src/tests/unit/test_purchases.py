@@ -514,15 +514,15 @@ class TestPurchasesService:
     ):
         """Test checking if all offers are fulfilled - true"""
         mock_purchase_offer.fulfillment_status = "fulfilled"
+        mock_purchase_offer.fulfilled_quantity = TEST_QUANTITY  # fulfilled_quantity == quantity
         mock_session.execute.side_effect = [
-            create_mock_scalars_result([mock_purchase_offer]),  # Total offers
-            create_mock_scalars_result([mock_purchase_offer])   # Fulfilled offers
+            create_mock_scalars_result([mock_purchase_offer])  # All offers
         ]
         
         result = await purchases_service.check_all_offers_fulfilled(mock_session, TEST_PURCHASE_ID)
         
         assert result is True
-        assert mock_session.execute.call_count == 2
+        assert mock_session.execute.call_count == 1
 
     @pytest.mark.asyncio
     async def test_check_all_offers_fulfilled_false(
@@ -530,15 +530,47 @@ class TestPurchasesService:
     ):
         """Test checking if all offers are fulfilled - false"""
         mock_purchase_offer.fulfillment_status = None
+        mock_purchase_offer.fulfilled_quantity = None
         mock_session.execute.side_effect = [
-            create_mock_scalars_result([mock_purchase_offer]),  # Total offers
-            create_mock_scalars_result([])                     # Fulfilled offers
+            create_mock_scalars_result([mock_purchase_offer])  # All offers
         ]
         
         result = await purchases_service.check_all_offers_fulfilled(mock_session, TEST_PURCHASE_ID)
         
         assert result is False
-        assert mock_session.execute.call_count == 2
+        assert mock_session.execute.call_count == 1
+    
+    @pytest.mark.asyncio
+    async def test_check_all_offers_fulfilled_partial_quantity(
+        self, purchases_service, mock_session, mock_purchase_offer
+    ):
+        """Test checking if all offers are fulfilled - false when fulfilled_quantity < quantity"""
+        mock_purchase_offer.fulfillment_status = "fulfilled"
+        mock_purchase_offer.fulfilled_quantity = TEST_QUANTITY - 1  # Less than requested
+        mock_session.execute.side_effect = [
+            create_mock_scalars_result([mock_purchase_offer])  # All offers
+        ]
+        
+        result = await purchases_service.check_all_offers_fulfilled(mock_session, TEST_PURCHASE_ID)
+        
+        assert result is False
+        assert mock_session.execute.call_count == 1
+    
+    @pytest.mark.asyncio
+    async def test_check_all_offers_fulfilled_not_fulfilled_status(
+        self, purchases_service, mock_session, mock_purchase_offer
+    ):
+        """Test checking if all offers are fulfilled - false when status is 'not_fulfilled'"""
+        mock_purchase_offer.fulfillment_status = "not_fulfilled"
+        mock_purchase_offer.fulfilled_quantity = TEST_QUANTITY
+        mock_session.execute.side_effect = [
+            create_mock_scalars_result([mock_purchase_offer])  # All offers
+        ]
+        
+        result = await purchases_service.check_all_offers_fulfilled(mock_session, TEST_PURCHASE_ID)
+        
+        assert result is False
+        assert mock_session.execute.call_count == 1
 
 
 class TestPurchasesManager:

@@ -15,6 +15,10 @@ from app.offers.models import Offer
 from app.shop_points.models import ShopPoint
 from app.sellers.manager import SellersManager
 from app.sellers.service import SellersService
+from app.sellers.models import Seller
+from app.shop_points.models import ShopPoint
+from app.offers.models import Offer
+from sqlalchemy.orm import selectinload
 from app.payments.manager import PaymentsManager
 from utils.errors_handler import handle_alchemy_error
 from app.purchases.tasks import check_purchase_expiration
@@ -490,6 +494,25 @@ class PurchasesManager:
             page_size=page_size,
             total_items=total_count
         )
+    
+    async def get_purchases(
+        self, session: AsyncSession,
+        status: Optional[str] = None,
+        user_id: Optional[int] = None,
+        min_created_at: Optional[datetime] = None,
+        max_created_at: Optional[datetime] = None,
+        min_updated_at: Optional[datetime] = None,
+        max_updated_at: Optional[datetime] = None
+    ) -> PaginatedResponse[schemas.Purchase]:
+        """Get paginated list of purchases with optional filters"""
+        purchases = await self.service.get_purchases(
+            session, status, user_id,
+            min_created_at, max_created_at, min_updated_at, max_updated_at
+        )
+        purchase_schemas = [
+            schemas.Purchase.model_validate(purchase) for purchase in purchases
+        ]
+        return purchase_schemas
 
     @handle_alchemy_error
     async def update_purchase_status(

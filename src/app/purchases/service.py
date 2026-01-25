@@ -142,6 +142,45 @@ class PurchasesService:
         purchases = result.scalars().all()
         
         return list(purchases), total_count
+    
+    async def get_purchases(
+        self, session: AsyncSession,
+        status: Optional[str] = None,
+        user_id: Optional[int] = None,
+        min_created_at: Optional[datetime] = None,
+        max_created_at: Optional[datetime] = None,
+        min_updated_at: Optional[datetime] = None,
+        max_updated_at: Optional[datetime] = None
+    ) -> tuple[List[Purchase], int]:
+        """Get paginated list of purchases with optional filters"""
+        # Build base query with filters
+        base_query = select(Purchase)
+        
+        # Apply filters
+        conditions = []
+        if status is not None:
+            conditions.append(Purchase.status == status)
+        if user_id is not None:
+            conditions.append(Purchase.user_id == user_id)
+        if min_created_at is not None:
+            conditions.append(Purchase.created_at >= min_created_at)
+        if max_created_at is not None:
+            conditions.append(Purchase.created_at <= max_created_at)
+        if min_updated_at is not None:
+            conditions.append(Purchase.updated_at >= min_updated_at)
+        if max_updated_at is not None:
+            conditions.append(Purchase.updated_at <= max_updated_at)
+        
+        if conditions:
+            base_query = base_query.where(and_(*conditions))
+        
+        result = await session.execute(
+            base_query
+            .order_by(Purchase.created_at.desc())
+        )
+        purchases = result.scalars().all()
+        
+        return list(purchases)
 
     async def get_pending_purchase_by_user(
         self, session: AsyncSession, user_id: int, for_update: bool = False
@@ -307,27 +346,24 @@ class PurchasesService:
         self, session: AsyncSession, purchase_id: int
     ) -> bool:
         """Check if all offers in purchase have been fulfilled (processed)"""
-        # Count total offers
-        total_result = await session.execute(
+        # Get all purchase offers
+        result = await session.execute(
             select(PurchaseOffer)
             .where(PurchaseOffer.purchase_id == purchase_id)
         )
-        total_offers = len(list(total_result.scalars().all()))
+        purchase_offers = list(result.scalars().all())
         
-        if total_offers == 0:
+        if not purchase_offers:
             return False
         
-        # Count fulfilled offers (status is not NULL)
-        fulfilled_result = await session.execute(
-            select(PurchaseOffer)
-            .where(
-                and_(
-                    PurchaseOffer.purchase_id == purchase_id,
-                    PurchaseOffer.fulfillment_status.isnot(None)
-                )
-            )
-        )
-        fulfilled_offers = len(list(fulfilled_result.scalars().all()))
+        # Check that all offers are fulfilled:
+        # 1. fulfillment_status must be 'fulfilled'
+        # 2. fulfilled_quantity must be >= quantity (all requested items were fulfilled)
+        for po in purchase_offers:
+            if po.fulfillment_status != 'fulfilled':
+                return False
+            if po.fulfilled_quantity is None or po.fulfilled_quantity < po.quantity:
+                return False
         
-        return fulfilled_offers == total_offers
+        return True
 

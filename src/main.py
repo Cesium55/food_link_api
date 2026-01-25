@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_async_session_generator
@@ -20,13 +20,14 @@ from app.payments.routes import router as payments_router
 
 
 import app.admin as admin_models
+from app.admin.admin import MyAdmin
+from app.admin.views import ReportView
 
 from middleware.insert_session_middleware import InsertSessionMiddleware
 from middleware.timing_middleware import TimingMiddleware
 from middleware.response_wrapper_middleware import ResponseWrapperMiddleware
 from utils.image_manager import ImageManager
 
-from sqladmin import Admin
 from database import async_engine
 
 
@@ -74,7 +75,7 @@ app.include_router(payments_router)
 app.include_router(debug_router)
 app.include_router(maps_router)
 
-admin = Admin(app, async_engine, base_url="/addmin-pnl")
+admin = MyAdmin(app, async_engine, base_url="/addmin-pnl", templates_dir="src/templates/sqladmin")
 admin.add_view(admin_models.UserAdmin)
 admin.add_view(admin_models.RefreshTokenAdmin)
 admin.add_view(admin_models.OfferAdmin)
@@ -92,6 +93,7 @@ admin.add_view(admin_models.SellerAdmin)
 admin.add_view(admin_models.SellerImageAdmin)
 admin.add_view(admin_models.ShopPointAdmin)
 admin.add_view(admin_models.ShopPointImageAdmin)
+admin.add_view(ReportView)
 
 
 @app.get("/")
