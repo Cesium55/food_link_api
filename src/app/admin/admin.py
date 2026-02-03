@@ -112,8 +112,8 @@ class MyAdmin(Admin):
                 
                 last_month_purchases.append(purchase_dict)
             
-            # Get seller image URLs in one batch
-            seller_image_urls = {}
+            # Get seller image data in one batch (bucket and path only)
+            seller_image_data = {}
             if unique_seller_ids:
                 sellers_result = await session.execute(
                     select(Seller)
@@ -122,8 +122,6 @@ class MyAdmin(Admin):
                 )
                 sellers = sellers_result.scalars().all()
                 
-                # Get current host from request
-                current_host = f"{request.url.scheme}://{request.url.netloc}"
                 bucket_name = settings.s3_bucket_name
                 
                 for seller in sellers:
@@ -139,13 +137,15 @@ class MyAdmin(Admin):
                             else:
                                 image_path = parts[0]
                         
-                        # Build URL: current_host/images/bucket_name/relative_path
-                        image_url = f"{current_host}/images/{bucket_name}/{image_path}"
-                        seller_image_urls[seller.id] = image_url
+                        # Store bucket and path separately
+                        seller_image_data[seller.id] = {
+                            "bucket": bucket_name,
+                            "path": image_path
+                        }
                     else:
-                        seller_image_urls[seller.id] = "NO_IMAGE"
+                        seller_image_data[seller.id] = None
             
             # Serialize to JSON for template
             context["last_month_purchases"] = json.dumps(last_month_purchases)
-            context["seller_image_urls"] = json.dumps(seller_image_urls)
+            context["seller_image_data"] = json.dumps(seller_image_data)
         return await self.templates.TemplateResponse(request, "sqladmin/index.html", context)

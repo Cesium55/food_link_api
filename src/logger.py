@@ -147,4 +147,13 @@ def get_sync_logger(name: str) -> SyncLogger:
     if name not in _sync_loggers:
         log_file = str(Path('logs') / 'app.log')
         _sync_loggers[name] = SyncLogger(name, log_file)
-    return _sync_loggers[name] 
+    return _sync_loggers[name]
+
+
+def hard_log(message: str, log_file: str = 'logs/app.log') -> None:
+    """Hard log function that writes directly to file using file.write without any library overhead"""
+    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+    with open(log_file, 'a', encoding='utf-8') as f:
+        f.write(message)
+        if not message.endswith('\n'):
+            f.write('\n') 

@@ -144,8 +144,18 @@
 <script>
     const purchasesDataRaw = {{ last_month_purchases | safe }};
     const purchasesData = Array.isArray(purchasesDataRaw) ? purchasesDataRaw : [];
-    const sellerImageUrlsRaw = {{ seller_image_urls | safe }};
-    const sellerImageUrls = typeof sellerImageUrlsRaw === 'object' ? sellerImageUrlsRaw : {};
+    const sellerImageDataRaw = {{ seller_image_data | safe }};
+    const sellerImageData = typeof sellerImageDataRaw === 'object' ? sellerImageDataRaw : {};
+    
+    // Helper function to build image URL from bucket and path
+    function buildImageUrl(sellerId) {
+        const imageData = sellerImageData[sellerId];
+        if (!imageData || !imageData.bucket || !imageData.path) {
+            return null;
+        }
+        const host = window.location.origin;
+        return `${host}/images/${imageData.bucket}/${imageData.path}`;
+    }
     
     // Status colors mapping
     const statusColors = {
@@ -567,8 +577,8 @@
             // Seller image
             const imageDiv = document.createElement('div');
             imageDiv.style.cssText = 'width: 48px; height: 48px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: #e5e7eb; display: flex; align-items: center; justify-content: center;';
-            const imageUrl = sellerImageUrls[seller.id];
-            if (imageUrl && imageUrl !== 'NO_IMAGE' && !imageUrl.startsWith('ERROR:')) {
+            const imageUrl = buildImageUrl(seller.id);
+            if (imageUrl) {
                 const img = document.createElement('img');
                 img.src = imageUrl;
                 img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
@@ -579,8 +589,7 @@
                 };
                 imageDiv.appendChild(img);
             } else {
-                const debugText = imageUrl && imageUrl.startsWith('ERROR:') ? imageUrl : (imageUrl || 'NO_IMAGE');
-                imageDiv.innerHTML = `<span style="color: #ef4444; font-size: 0.6rem; word-break: break-all; padding: 0.25rem;">${debugText}</span>`;
+                imageDiv.innerHTML = `<span style="color: #ef4444; font-size: 0.6rem; word-break: break-all; padding: 0.25rem;">NO_IMAGE</span>`;
             }
             
             const infoDiv = document.createElement('div');
