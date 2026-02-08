@@ -29,6 +29,9 @@ class User(Base):
         "Purchase", back_populates="user"
     )
 
+    def __str__(self):
+        return f"User(id={self.id}, email={self.email}, phone={self.phone}, is_seller={self.is_seller})"
+
 
 class RefreshToken(Base):
     """Refresh token model"""

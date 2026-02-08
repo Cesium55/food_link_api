@@ -106,6 +106,7 @@ async def verify_code(phone: str, code: str) -> bool:
         True if code is correct, False otherwise
     """
     stored_code = await get_verification_code(phone)
+    print(stored_code)
     
     if stored_code and stored_code == code:
         await delete_verification_code(phone)

@@ -63,10 +63,10 @@ class UserPayment(Base):
         JSON, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now
     )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now
     )
 
     __table_args__ = (
@@ -85,3 +85,29 @@ class UserPayment(Base):
     )
 
     purchase: Mapped["Purchase"] = relationship("Purchase", back_populates="payments")
+
+
+
+class UserRefund(Base):
+    """UserRefund model - represents a refund for a payment"""
+
+    __tablename__ = "user_refunds"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    payment_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("user_payments.id"), nullable=False, index=True
+    )
+    yookassa_refund_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="RUB")
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now
+    )
+
+    payment: Mapped["UserPayment"] = relationship("UserPayment", back_populates="refunds")

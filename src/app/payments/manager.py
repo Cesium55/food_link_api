@@ -2,13 +2,13 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import update, func
+from sqlalchemy import update, func, select
 from fastapi import HTTPException, status
 from logger import get_sync_logger
 
 from app.payments import schemas
 from app.payments.service import PaymentsService
-from app.payments.models import UserPayment, PaymentStatus
+from app.payments.models import UserPayment, PaymentStatus, UserRefund
 from app.purchases.service import PurchasesService
 from app.purchases.models import PurchaseStatus
 from app.offers.service import OffersService
@@ -798,7 +798,7 @@ class PaymentsManager:
             shop_point_ids = list(set([offer.shop_id for offer in offers]))
             
             # Get shop points with sellers
-            from sqlalchemy import select
+           
             shop_points_result = await session.execute(
                 select(ShopPoint).where(ShopPoint.id.in_(shop_point_ids))
             )
@@ -869,4 +869,79 @@ class PaymentsManager:
             return datetime.fromisoformat(value)
         except (ValueError, AttributeError):
             return None
+        
+
+    @handle_alchemy_error
+    async def create_user_refund(self, session, payment_id: int, amount: Decimal, reason: Optional[str] = None):
+        """Create a refund for a payment"""
+        # Lock payment to avoid race conditions
+        payment = await self.service.get_payment_by_id_for_update(session, payment_id)
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Payment with id {payment_id} not found"
+            )
+
+        if payment.status != PaymentStatus.SUCCEEDED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only succeeded payments can be refunded"
+            )
+
+        current_payment_balance = await self.get_payment_current_balance(session, payment_id)
+        if amount > current_payment_balance:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Refund amount {amount} exceeds current payment balance {current_payment_balance}"
+            )
+
+        if not payment.yookassa_payment_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Payment does not have YooKassa payment ID"
+            )
+
+        # Call YooKassa API to create refund
+        async with create_yookassa_client() as yookassa_client:
+            yookassa_refund = await yookassa_client.create_refund(
+                payment.yookassa_payment_id, amount, currency=payment.currency, reason=reason
+            )
+
+        # Persist refund locally
+        user_refund = await self.service.create_refund(session, payment_id, amount, reason)
+
+        # If YooKassa returned refund id, update local refund record
+        y_refund_id = None
+        if isinstance(yookassa_refund, dict):
+            y_refund_id = yookassa_refund.get("id")
+
+        if y_refund_id:
+            await session.execute(
+                update(UserRefund)
+                .where(UserRefund.id == user_refund.id)
+                .values(yookassa_refund_id=y_refund_id)
+            )
+
+        await session.commit()
+        # Return updated refund record
+        result = await session.execute(select(UserRefund).where(UserRefund.id == user_refund.id))
+        return result.scalar_one()
+
+
+    @handle_alchemy_error
+    async def get_payment_current_balance(self, session, payment_id: int) -> Decimal:
+        """Check the current balance of a payment"""
+        payment = await self.service.get_payment_by_id(session, payment_id)
+        if not payment.status == PaymentStatus.SUCCEEDED.value:
+            return Decimal('0.00')
+        
+        current_refunds = await self.service.get_payment_refunds(session, payment_id)
+        total_refunded = sum(refund.amount for refund in current_refunds)
+        return payment.amount - total_refunded
+        
+
+        
+        
+
+
 

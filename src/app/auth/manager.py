@@ -12,6 +12,7 @@ from utils.exolve_sms_manager import create_exolve_sms_manager
 from utils.redis.verification_codes import store_verification_code, verify_code, _format_phone_number
 from config import settings
 from logger import get_sync_logger
+from utils.tg_gateway_manager import TelegramGatewayClient
 
 logger = get_sync_logger(__name__)
 
@@ -44,6 +45,7 @@ class AuthManager:
         self.service = AuthService()
         self.jwt_utils = JWTUtils()
         self.sellers_service = SellersService()
+        self.code_manager = TelegramGatewayClient
 
     async def _create_tokens_for_user(self, session: AsyncSession, user: User) -> schemas.TokenResponse:
         """Create access and refresh tokens for user"""
@@ -106,7 +108,8 @@ class AuthManager:
         # If registration by phone, send verification code immediately
         if phone:
             try:
-                async with create_exolve_sms_manager() as sms_manager:
+                # async with create_exolve_sms_manager() as sms_manager:
+                async with self.code_manager() as sms_manager:
                     code = await sms_manager.send_verification_code(phone)
                 
                 # Store code in Redis
@@ -224,7 +227,7 @@ class AuthManager:
         formatted_phone = user.phone
         
         # Generate and send code
-        async with create_exolve_sms_manager() as sms_manager:
+        async with self.code_manager() as sms_manager:
             code = await sms_manager.send_verification_code(formatted_phone)
         
         # Store code in Redis
@@ -257,6 +260,7 @@ class AuthManager:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
             )
+        print(user)
         
         # Check if user has phone
         if not user.phone:

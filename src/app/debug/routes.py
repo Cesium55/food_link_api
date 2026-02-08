@@ -674,3 +674,23 @@ async def recalculate_purchase_statuses_endpoint(
             status_code=500,
             detail=error_details
         )
+
+
+@router.post("/tg-send-code")
+async def tg_send_code(number: str) -> Dict[str, Any]:
+    """
+    Test sending verification code via Telegram Gateway API.
+    """
+
+    from utils.tg_gateway_manager import TelegramGatewayClient
+    
+    async with TelegramGatewayClient(access_token=settings.tg_gateway_access_token) as tg_manager:
+        result = await tg_manager.send_verification_message(
+            phone_number=number
+        )
+    
+    return {
+        "success": True,
+        "message": "Verification code sent successfully",
+        "result": result
+    }

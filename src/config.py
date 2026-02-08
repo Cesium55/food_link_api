@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     # Настройки аутентификации
     auth_enable_email: bool = True
     auth_enable_phone: bool = True
+
+    # tg
+    tg_gateway_access_token: Optional[str] = None
+    
     
     class Config:
         env_file = ".env"

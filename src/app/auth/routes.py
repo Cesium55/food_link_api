@@ -60,6 +60,7 @@ async def verify_phone(
     """Verify phone number with code and get new token with phone_verified=True"""
     token = credentials.credentials
     user = await auth_manager.get_current_user_by_token(request.state.session, token)
+    print("user got")
     
     return await auth_manager.verify_phone_code(
         request.state.session,

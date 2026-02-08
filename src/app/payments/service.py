@@ -1,9 +1,10 @@
+from decimal import Decimal
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, update, delete
 
 from app.payments import schemas
-from app.payments.models import UserPayment, PaymentStatus
+from app.payments.models import UserPayment, PaymentStatus, UserRefund
 
 
 class PaymentsService:
@@ -138,3 +139,19 @@ class PaymentsService:
             .where(UserPayment.id == payment_id)
             .values(status=status)
         )
+
+    async def get_payment_refunds(self, session: AsyncSession, payment_id: int):
+        """Get refunds for a payment"""
+        result = await session.execute(
+            select(UserRefund).where(UserRefund.payment_id == payment_id)
+        )
+        return result.scalars().all()
+    
+    async def create_refund(self, session: AsyncSession, payment_id: int, amount: Decimal, reason: Optional[str] = None) -> UserRefund:
+        """Create a refund for a payment"""
+        result = await session.execute(
+            insert(UserRefund)
+            .values(payment_id=payment_id, amount=amount, reason=reason)
+            .returning(UserRefund)
+        )
+        return result.scalar_one()
