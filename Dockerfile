@@ -15,11 +15,11 @@ RUN uv sync --frozen
 
 COPY src/ ./src/
 
-RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app
+# RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app
 USER app
 
 EXPOSE 8000
 
-COPY run.py ./
+COPY run.py run_celery.py ./
 
 CMD ["uv", "run", "python", "run.py"]

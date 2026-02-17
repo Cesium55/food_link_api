@@ -24,7 +24,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: food_link_postgres
-      DB_PORT: 5432
+      DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
       APP_NAME: ${APP_NAME}
       APP_VERSION: ${APP_VERSION}
@@ -63,7 +63,7 @@ services:
     networks:
       - food_link_network
     volumes:
-      - ./:/app               # ← ВСЁ из репозитория → в /app
+      - ./:/app               
     command: ["uv", "run", "python", "run.py"]
     depends_on:
       - postgres
@@ -92,7 +92,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: food_link_postgres
-      DB_PORT: 5432
+      DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
@@ -101,7 +101,7 @@ services:
       JWT_PUBLIC_KEY_B64: ${JWT_PUBLIC_KEY_B64}
       FIREBASE_CREDENTIALS_JSON_B64: ${FIREBASE_CREDENTIALS_JSON_B64}
     volumes:
-      - ./:/app               # ← То же самое для celery
+      - ./:/app             
     networks:
       - food_link_network
     depends_on:
