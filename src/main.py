@@ -42,19 +42,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         # Log error but don't fail startup
         import logging
+
         logger = logging.getLogger(__name__)
         logger.warning(f"Failed to initialize MinIO bucket: {str(e)}")
-    
+
     yield
-    
+
     # Shutdown
+
 
 app = FastAPI(
     title=settings.app_name,
     description=settings.app_name,
     version=settings.app_version,
     debug=settings.debug,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Mount static files
@@ -75,25 +77,34 @@ app.include_router(payments_router)
 app.include_router(debug_router)
 app.include_router(maps_router)
 
-admin = MyAdmin(app, async_engine, base_url="/addmin-pnl", templates_dir="src/templates/sqladmin")
-admin.add_view(admin_models.UserAdmin)
-admin.add_view(admin_models.RefreshTokenAdmin)
-admin.add_view(admin_models.OfferAdmin)
-admin.add_view(admin_models.PricingStrategyAdmin)
-admin.add_view(admin_models.PricingStrategyStepAdmin)
-admin.add_view(admin_models.UserPaymentAdmin)
-admin.add_view(admin_models.ProductCategoryAdmin)
-admin.add_view(admin_models.ProductAdmin)
-admin.add_view(admin_models.ProductImageAdmin)
-admin.add_view(admin_models.ProductAttributeAdmin)
-admin.add_view(admin_models.PurchaseAdmin)
-admin.add_view(admin_models.PurchaseOfferAdmin)
-admin.add_view(admin_models.PurchaseOfferResultAdmin)
-admin.add_view(admin_models.SellerAdmin)
-admin.add_view(admin_models.SellerImageAdmin)
-admin.add_view(admin_models.ShopPointAdmin)
-admin.add_view(admin_models.ShopPointImageAdmin)
-admin.add_view(ReportView)
+admin = MyAdmin(
+    app, async_engine, base_url="/addmin-pnl", templates_dir="src/templates/sqladmin"
+)
+admin_views = [
+    admin_models.UserAdmin,
+    admin_models.RefreshTokenAdmin,
+    admin_models.OfferAdmin,
+    admin_models.PricingStrategyAdmin,
+    admin_models.PricingStrategyStepAdmin,
+    admin_models.UserPaymentAdmin,
+    admin_models.ProductCategoryAdmin,
+    admin_models.ProductAdmin,
+    admin_models.ProductImageAdmin,
+    admin_models.ProductAttributeAdmin,
+    admin_models.PurchaseAdmin,
+    admin_models.PurchaseOfferAdmin,
+    admin_models.PurchaseOfferResultAdmin,
+    admin_models.SellerAdmin,
+    admin_models.SellerImageAdmin,
+    admin_models.ShopPointAdmin,
+    admin_models.ShopPointImageAdmin,
+    admin_models.ReportView,
+]
+for v in admin_views:
+    try:
+        admin.add_view(v)
+    except Exception:
+        pass
 
 
 @app.get("/")
@@ -114,10 +125,10 @@ def get_public_key():
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"JWT algorithm does not support public key export: {str(e)}"
+            detail=f"JWT algorithm does not support public key export: {str(e)}",
         )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error loading public key: {str(e)}"
+            detail=f"Error loading public key: {str(e)}",
         )

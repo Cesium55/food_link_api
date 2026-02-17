@@ -9,6 +9,7 @@ wheels/
 # IDEs
 .vscode
 .cursor
+agents.md
 
 # Virtual environments
 .venv

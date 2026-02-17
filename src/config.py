@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "RS256"
     jwt_private_key_path: str = "keys/jwt_private_key.pem"
     jwt_public_key_path: str = "keys/jwt_public_key.pem"
+    jwt_private_key_b64: Optional[str] = None
+    jwt_public_key_b64: Optional[str] = None
+    firebase_credentials_json_b64: Optional[str] = None
+    firebase_credentials_path: str = "keys/firebase-key.json"
     
     # Настройки CORS
     allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:8080"]

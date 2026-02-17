@@ -1,8 +1,12 @@
 from typing import Optional, Dict, Any
+import base64
+import binascii
+import json
 import firebase_admin
 from firebase_admin import credentials, messaging
 from logger import get_sync_logger
 from pathlib import Path
+from config import settings
 
 logger = get_sync_logger(__name__)
 
@@ -10,12 +14,34 @@ logger = get_sync_logger(__name__)
 _firebase_app: Optional[firebase_admin.App] = None
 
 
-def _initialize_firebase_app(credential_path: str = "keys/firebase-key.json") -> firebase_admin.App:
+def _load_firebase_certificate_data(credential_path: Optional[str] = None) -> Dict[str, Any]:
+    """Load Firebase service account JSON from base64 env var with file fallback."""
+    if settings.firebase_credentials_json_b64:
+        try:
+            decoded_json = base64.b64decode(settings.firebase_credentials_json_b64).decode("utf-8")
+            return json.loads(decoded_json)
+        except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("FIREBASE_CREDENTIALS_JSON_B64 is invalid") from exc
+
+    effective_credential_path = credential_path or settings.firebase_credentials_path
+    credential_file = Path(effective_credential_path)
+    if not credential_file.exists():
+        raise FileNotFoundError(
+            "Firebase credentials not found. "
+            "Set FIREBASE_CREDENTIALS_JSON_B64 "
+            f"or provide file at {effective_credential_path}"
+        )
+
+    with open(credential_file, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def _initialize_firebase_app(credential_path: Optional[str] = None) -> firebase_admin.App:
     """
     Initialize Firebase Admin SDK with service account credentials
     
     Args:
-        credential_path: Path to Firebase service account key JSON file
+        credential_path: Optional fallback path to Firebase service account key JSON file
         
     Returns:
         Initialized Firebase App instance
@@ -23,11 +49,8 @@ def _initialize_firebase_app(credential_path: str = "keys/firebase-key.json") ->
     global _firebase_app
     
     if _firebase_app is None:
-        credential_file = Path(credential_path)
-        if not credential_file.exists():
-            raise FileNotFoundError(f"Firebase credential file not found at {credential_path}")
-        
-        cred = credentials.Certificate(str(credential_file))
+        cert_data = _load_firebase_certificate_data(credential_path)
+        cred = credentials.Certificate(cert_data)
         _firebase_app = firebase_admin.initialize_app(cred)
         logger.info("Firebase Admin SDK initialized successfully")
     
@@ -37,12 +60,12 @@ def _initialize_firebase_app(credential_path: str = "keys/firebase-key.json") ->
 class FirebaseNotificationManager:
     """Manager for sending push notifications via Firebase Cloud Messaging (FCM)"""
     
-    def __init__(self, credential_path: str = "keys/firebase-key.json"):
+    def __init__(self, credential_path: Optional[str] = None):
         """
         Initialize Firebase Notification Manager
         
         Args:
-            credential_path: Path to Firebase service account key JSON file
+            credential_path: Optional fallback path to Firebase service account key JSON file
         """
         self.credential_path = credential_path
         _initialize_firebase_app(credential_path)
@@ -243,16 +266,15 @@ class FirebaseNotificationManager:
 
 
 def create_firebase_notification_manager(
-    credential_path: str = "keys/firebase-key.json"
+    credential_path: Optional[str] = None
 ) -> FirebaseNotificationManager:
     """
     Create a FirebaseNotificationManager instance
     
     Args:
-        credential_path: Path to Firebase service account key JSON file
+        credential_path: Optional fallback path to Firebase service account key JSON file
         
     Returns:
         FirebaseNotificationManager instance
     """
     return FirebaseNotificationManager(credential_path)
-

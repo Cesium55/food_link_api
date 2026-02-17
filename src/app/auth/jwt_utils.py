@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, TYPE_CHECKING
 from pathlib import Path
+import base64
+import binascii
 import jwt
 import uuid
 from config import settings
@@ -19,24 +21,43 @@ class JWTUtils:
         
         # Load RSA keys for RS256
         if self.algorithm == "RS256":
-            private_key_path = Path(settings.jwt_private_key_path)
-            public_key_path = Path(settings.jwt_public_key_path)
-            
-            if not private_key_path.exists():
-                raise FileNotFoundError(f"Private key not found at {private_key_path}")
-            if not public_key_path.exists():
-                raise FileNotFoundError(f"Public key not found at {public_key_path}")
-            
-            with open(private_key_path, "r") as f:
-                self.private_key = f.read()
-            
-            with open(public_key_path, "r") as f:
-                self.public_key = f.read()
+            self.private_key = self._load_secret_text(
+                b64_value=settings.jwt_private_key_b64,
+                path_value=settings.jwt_private_key_path,
+                secret_name="JWT private key"
+            )
+            self.public_key = self._load_secret_text(
+                b64_value=settings.jwt_public_key_b64,
+                path_value=settings.jwt_public_key_path,
+                secret_name="JWT public key"
+            )
         else:
             # Fallback to HS256 for backward compatibility
             self.secret_key = settings.jwt_secret_key
             self.private_key = None
             self.public_key = None
+
+    @staticmethod
+    def _load_secret_text(
+        b64_value: Optional[str],
+        path_value: str,
+        secret_name: str
+    ) -> str:
+        """Load secret text from base64 env var first, then fallback to file path."""
+        if b64_value:
+            try:
+                return base64.b64decode(b64_value).decode("utf-8")
+            except (binascii.Error, UnicodeDecodeError) as exc:
+                raise ValueError(f"{secret_name} in base64 is invalid") from exc
+
+        key_path = Path(path_value)
+        if not key_path.exists():
+            raise FileNotFoundError(
+                f"{secret_name} not found. Provide base64 env var or file at {key_path}"
+            )
+
+        with open(key_path, "r", encoding="utf-8") as file:
+            return file.read()
     
     def create_access_token(self, user: "User") -> str:
         """Create JWT access token"""

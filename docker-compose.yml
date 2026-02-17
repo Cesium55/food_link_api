@@ -14,6 +14,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - food_link_network
+    restart: unless-stopped
 
   # Приложение FastAPI
   api:
@@ -44,7 +45,6 @@ services:
       ALLOWED_METHODS: ${CORS_ALLOWED_METHODS}
       ALLOWED_HEADERS: ${CORS_ALLOWED_HEADERS}
 
-      
       # Настройки Redis
       REDIS_URL: ${REDIS_URL}
       REDIS_HOST: ${REDIS_HOST}
@@ -65,7 +65,6 @@ services:
       AUTH_ENABLE_EMAIL: ${AUTH_ENABLE_EMAIL:-true}
       AUTH_ENABLE_PHONE: ${AUTH_ENABLE_PHONE:-true}
 
-
       CELERY_BROKER_URL: ${CELERY_BROKER_URL}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
       PURCHASE_EXPIRATION_SECONDS: ${PURCHASE_EXPIRATION_SECONDS}
@@ -75,23 +74,39 @@ services:
 
       TG_GATEWAY_ACCESS_TOKEN: ${TG_GATEWAY_ACCESS_TOKEN}
 
+      # Secrets (JWT/Firebase) — лучше вынести в secrets/configs, но пока оставляем
+      JWT_PRIVATE_KEY_B64: ${JWT_PRIVATE_KEY_B64}
+      JWT_PUBLIC_KEY_B64: ${JWT_PUBLIC_KEY_B64}
+      FIREBASE_CREDENTIALS_JSON_B64: ${FIREBASE_CREDENTIALS_JSON_B64}
+
     ports:
       - "${SERVER_PORT}:8000"
     networks:
       - food_link_network
     volumes:
       - ./src:/app/src
-      - ./run.py:/app/run.py
-      - ./run.sh:/app/run.sh
-      - ./pyproject.toml:/app/pyproject.toml
-      - ./.python-version:/app/.python-version
-      - ./uv.lock:/app/uv.lock
-      - ./keys:/app/keys
+      - type: bind
+        source: ./run.py
+        target: /app/run.py
+        read_only: true
+      - type: bind
+        source: ./pyproject.toml
+        target: /app/pyproject.toml
+        read_only: true
+      - type: bind
+        source: ./.python-version
+        target: /app/.python-version
+        read_only: true
+      - type: bind
+        source: ./uv.lock
+        target: /app/uv.lock
+        read_only: true
     command: ["uv", "run", "python", "run.py"]
     depends_on:
       - postgres
       - redis
       - minio
+    restart: unless-stopped
 
   # Redis
   redis:
@@ -105,7 +120,6 @@ services:
       - food_link_network
     restart: unless-stopped
 
-    
   celery_worker:
     build: .
     container_name: food_link_celery_worker
@@ -121,14 +135,31 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
       PURCHASE_EXPIRATION_SECONDS: ${PURCHASE_EXPIRATION_SECONDS:-30}
+      JWT_PRIVATE_KEY_B64: ${JWT_PRIVATE_KEY_B64}
+      JWT_PUBLIC_KEY_B64: ${JWT_PUBLIC_KEY_B64}
+      FIREBASE_CREDENTIALS_JSON_B64: ${FIREBASE_CREDENTIALS_JSON_B64}
     volumes:
       - ./src:/app/src
-      - ./run.py:/app/run.py
-      - ./run_celery.py:/app/run_celery.py
-      - ./pyproject.toml:/app/pyproject.toml
-      - ./.python-version:/app/.python-version
-      - ./uv.lock:/app/uv.lock
-      - ./keys:/app/keys
+      - type: bind
+        source: ./run.py
+        target: /app/run.py
+        read_only: true
+      - type: bind
+        source: ./run_celery.py
+        target: /app/run_celery.py
+        read_only: true
+      - type: bind
+        source: ./pyproject.toml
+        target: /app/pyproject.toml
+        read_only: true
+      - type: bind
+        source: ./.python-version
+        target: /app/.python-version
+        read_only: true
+      - type: bind
+        source: ./uv.lock
+        target: /app/uv.lock
+        read_only: true
     networks:
       - food_link_network
     depends_on:
@@ -153,12 +184,12 @@ services:
     networks:
       - food_link_network
     command: server /data --console-address ":9001"
-    # restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 20s
       retries: 3
+    restart: unless-stopped
 
 volumes:
   postgres_data:
