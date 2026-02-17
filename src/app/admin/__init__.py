@@ -18,6 +18,7 @@ from app.admin.purchases_views import (
 )
 from app.admin.sellers_views import SellerAdmin, SellerImageAdmin
 from app.admin.shop_points_views import ShopPointAdmin, ShopPointImageAdmin
+from app.admin.support_views import MasterChatAdmin, MasterChatMessageAdmin
 from app.admin.views import ReportView
 
 __all__ = [
@@ -38,5 +39,7 @@ __all__ = [
     "SellerImageAdmin",
     "ShopPointAdmin",
     "ShopPointImageAdmin",
+    "MasterChatAdmin",
+    "MasterChatMessageAdmin",
     "ReportView"
 ]

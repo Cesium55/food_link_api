@@ -17,6 +17,7 @@ from app.debug.routes import router as debug_router
 from app.maps.routes import router as maps_router
 from app.purchases.routes import router as purchases_router
 from app.payments.routes import router as payments_router
+from app.support.routes import router as support_router
 
 
 import app.admin as admin_models
@@ -74,6 +75,7 @@ app.include_router(offers_router)
 app.include_router(product_categories_router)
 app.include_router(purchases_router)
 app.include_router(payments_router)
+app.include_router(support_router)
 app.include_router(debug_router)
 app.include_router(maps_router)
 
@@ -98,6 +100,8 @@ admin_views = [
     admin_models.SellerImageAdmin,
     admin_models.ShopPointAdmin,
     admin_models.ShopPointImageAdmin,
+    admin_models.MasterChatAdmin,
+    admin_models.MasterChatMessageAdmin,
     admin_models.ReportView,
 ]
 for v in admin_views:

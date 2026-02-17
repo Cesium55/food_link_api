@@ -15,7 +15,8 @@ from app.offers.models import Offer
 from app.product_categories.models import ProductCategory, product_category_relations
 from app.auth.models import User, RefreshToken
 from app.purchases.models import Purchase, PurchaseOffer, PurchaseOfferResult
-from app.payments.models import UserPayment
+from app.payments.models import UserPayment, UserRefund
+from app.support.models import MasterChat, MasterChatMessage
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
