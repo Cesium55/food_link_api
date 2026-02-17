@@ -8,8 +8,8 @@ from pathlib import Path
 from config import settings
 import logging
 import asyncio
+import json
 
-from logger import hard_log
 
 logger = logging.getLogger(__name__)
 
@@ -47,22 +47,18 @@ class ImageManager:
         try:
             self._s3_client.head_bucket(Bucket=self.bucket_name)
             logger.info(f"S3 bucket '{self.bucket_name}' already exists")
-            hard_log(f"S3 bucket '{self.bucket_name}' already exists")
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', '')
-            if error_code == '404':
+            if error_code in {'404', 'NoSuchBucket', 'NotFound'}:
                 # Bucket doesn't exist, create it
                 try:
                     self._s3_client.create_bucket(Bucket=self.bucket_name)
                     logger.info(f"Created S3 bucket '{self.bucket_name}'")
-                    hard_log.info(f"Created S3 bucket '{self.bucket_name}'")
                 except ClientError as create_error:
                     logger.error(f"Failed to create S3 bucket: {str(create_error)}")
-                    hard_log.error(f"Failed to create S3 bucket: {str(create_error)}")
                     # Don't raise - bucket might be created by external process
             else:
                 logger.warning(f"Error checking S3 bucket existence: {str(e)}")
-                hard_log.warning(f"Error checking S3 bucket existence: {str(e)}")
 
     def _set_bucket_public_policy(self) -> None:
         """Set bucket policy to allow public read access"""
@@ -76,14 +72,13 @@ class ImageManager:
                 "Statement": [
                     {
                         "Effect": "Allow",
-                        "Principal": {"AWS": "*"},
+                        "Principal": "*",
                         "Action": ["s3:GetObject"],
                         "Resource": [f"arn:aws:s3:::{self.bucket_name}/*"]
                     }
                 ]
             }
-            
-            import json
+
             policy_json = json.dumps(public_read_policy)
             
             self._s3_client.put_bucket_policy(
@@ -466,4 +461,3 @@ class ImageManager:
 
         await session.commit()
         return uploaded_images
-

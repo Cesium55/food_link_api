@@ -61,9 +61,7 @@ services:
     ports:
       - "${SERVER_PORT}:8000"
     networks:
-      - food_link_network
-    volumes:
-      - ./:/app               
+      - food_link_network          
     command: ["uv", "run", "python", "run.py"]
     depends_on:
       - postgres
@@ -100,8 +98,6 @@ services:
       JWT_PRIVATE_KEY_B64: ${JWT_PRIVATE_KEY_B64}
       JWT_PUBLIC_KEY_B64: ${JWT_PUBLIC_KEY_B64}
       FIREBASE_CREDENTIALS_JSON_B64: ${FIREBASE_CREDENTIALS_JSON_B64}
-    volumes:
-      - ./:/app             
     networks:
       - food_link_network
     depends_on:
