@@ -16,7 +16,7 @@ RUN uv sync --frozen
 COPY src/ ./src/
 
 # RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app
-USER app
+# USER app
 
 EXPOSE 8000
 
