@@ -85,6 +85,9 @@ class UserPayment(Base):
     )
 
     purchase: Mapped["Purchase"] = relationship("Purchase", back_populates="payments")
+    refunds: Mapped[list["UserRefund"]] = relationship(
+        "UserRefund", back_populates="payment", cascade="all, delete-orphan"
+    )
 
 
 
