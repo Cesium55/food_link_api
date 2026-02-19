@@ -9,7 +9,7 @@ WORKDIR /app
 
 COPY pyproject.toml .python-version uv.lock ./
 
-COPY  categories.md ./
+COPY categories.md ./
 
 RUN pip install uv
 
