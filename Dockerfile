@@ -9,6 +9,8 @@ WORKDIR /app
 
 COPY pyproject.toml .python-version uv.lock ./
 
+COPY  categories.md ./
+
 RUN pip install uv
 
 RUN uv sync --frozen
