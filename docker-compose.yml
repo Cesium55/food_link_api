@@ -19,6 +19,7 @@ services:
     build: .
     container_name: food_link_api
     environment:
+      YANDEX_MAP_API_KEY: ${YANDEX_MAP_API_KEY}
       DB_SYNC_DRIVER: ${DB_SYNC_DRIVER}
       DB_ASYNC_DRIVER: ${DB_ASYNC_DRIVER}
       DB_USER: ${DB_USER}
