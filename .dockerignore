@@ -57,7 +57,6 @@ docker-compose.yml
 
 # Documentation
 README.md
-*.md
 
 # Logs
 *.log
