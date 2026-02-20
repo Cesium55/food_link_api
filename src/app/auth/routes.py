@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.auth import schemas
 from app.auth.manager import AuthManager
 from app.auth.models import User
-from utils.auth_dependencies import get_current_user
+from utils.auth_dependencies import get_current_user as get_current_user_dep
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -70,7 +70,7 @@ async def verify_phone(
 
 
 @router.post("", response_model=schemas.UserResponse, summary="Get current user", description="Get current user information by Bearer token")
-async def get_current_user(
+async def get_current_user_info(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
@@ -95,7 +95,7 @@ async def get_current_user(
 async def register_firebase_token(
     request: Request,
     token_data: schemas.FirebaseTokenRequest,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user_dep)
 ) -> dict:
     """Register or update Firebase token for the current user
     
@@ -107,8 +107,24 @@ async def register_firebase_token(
 
     return await auth_manager.register_firebase_token(
         request.state.session,
-        user.get("id"),
+        user.id,
         token_data.token
+    )
+
+
+@router.post(
+    "/bind-email",
+    summary="Bind email",
+    description="Bind email to current user without verification",
+)
+async def bind_email(
+    request: Request,
+    bind_data: schemas.BindEmailRequest,
+    current_user: User = Depends(get_current_user_dep),
+) -> dict:
+    """Bind email to authenticated user if it is not set yet."""
+    return await auth_manager.bind_email(
+        request.state.session, current_user.id, bind_data.email
     )
 
 
@@ -116,7 +132,7 @@ async def register_firebase_token(
 async def update_user_last_location(
     request: Request,
     location: schemas.UserLastLocationUpdate,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user_dep)
 ) -> dict:
     """Update current user's last known location
     
@@ -128,7 +144,7 @@ async def update_user_last_location(
     """
     return await auth_manager.update_user_last_location(
         request.state.session,
-        user.get("id"),
+        user.id,
         location.latitude,
         location.longitude
     )

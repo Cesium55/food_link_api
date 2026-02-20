@@ -50,19 +50,20 @@ class SupportManager:
                 detail="Invalid sender_type",
             )
 
-        master_chat = await self.service.get_master_chat_by_user_id(session, user_id)
-        if master_chat is None:
-            master_chat = await self.service.create_master_chat(session, user_id)
+        # Any new user message re-opens the dialog if chat exists and is closed.
+        if sender_type == "user":
+            master_chat = await self.service.get_master_chat_by_user_id(
+                session, user_id
+            )
+        else:
+            master_chat = None
 
-        # Any new user message re-opens the dialog.
-        if master_chat.is_closed and sender_type == "user":
+        if master_chat is not None and master_chat.is_closed and sender_type == "user":
             updated_chat = await self.service.set_master_chat_closed(
                 session=session,
                 user_id=user_id,
                 is_closed=False,
             )
-            if updated_chat is not None:
-                master_chat = updated_chat
 
         master_chat_message = await self.service.create_master_chat_message(
             session=session,

@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 from pydantic import BaseModel, Field, EmailStr, model_validator, ConfigDict
 import re
@@ -166,6 +167,70 @@ class SellerFirebaseTokenUpdate(BaseModel):
     """Schema for updating seller firebase token"""
 
     firebase_token: str = Field(..., min_length=1, max_length=500, description="Firebase FCM token")
+
+
+class SellerRegistrationRequestStatus(str, Enum):
+    PENDING = "pending"
+    REJECTED = "rejected"
+    APPROVED = "approved"
+
+
+class SellerRegistrationRequestBase(BaseModel):
+    """Base schema for seller registration requests."""
+
+    full_name: Optional[str] = Field(None, min_length=1, max_length=1000, description="Full name")
+    short_name: Optional[str] = Field(None, min_length=1, max_length=255, description="Short name")
+    description: Optional[str] = Field(None, description="Seller description")
+    inn: Optional[str] = Field(None, min_length=10, max_length=12, description="INN")
+    is_IP: Optional[bool] = Field(None, description="Is Individual Entrepreneur")
+    ogrn: Optional[str] = Field(None, min_length=13, max_length=15, description="OGRN")
+    terms_accepted: bool = Field(False, description="Terms accepted flag")
+
+    @model_validator(mode='after')
+    def validate_inn_ogrn(self):
+        """Validate INN and OGRN only when all required fields are provided."""
+        if self.is_IP is None or self.inn is None or self.ogrn is None:
+            return self
+        if self.is_IP:
+            if not re.match(r'^\d{12}$', self.inn):
+                raise ValueError('ИНН для ИП должен содержать 12 цифр')
+            if not re.match(r'^\d{15}$', self.ogrn):
+                raise ValueError('ОГРНИП для ИП должен содержать 15 цифр')
+        else:
+            if not re.match(r'^\d{10}$', self.inn):
+                raise ValueError('ИНН для юридического лица должен содержать 10 цифр')
+            if not re.match(r'^\d{13}$', self.ogrn):
+                raise ValueError('ОГРН для юридического лица должен содержать 13 цифр')
+        return self
+
+
+class SellerRegistrationRequestCreate(SellerRegistrationRequestBase):
+    """Schema for creating seller registration request."""
+
+
+class SellerRegistrationRequestUpdate(SellerRegistrationRequestBase):
+    """Schema for updating seller registration request."""
+
+
+class SellerRegistrationRequest(BaseModel):
+    """Schema for displaying seller registration request."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int = Field(..., description="Unique identifier")
+    user_id: int = Field(..., description="User ID")
+    full_name: Optional[str] = Field(None, description="Full name")
+    short_name: Optional[str] = Field(None, description="Short name")
+    description: Optional[str] = Field(None, description="Seller description")
+    inn: Optional[str] = Field(None, description="INN")
+    is_IP: Optional[bool] = Field(None, description="Is Individual Entrepreneur")
+    ogrn: Optional[str] = Field(None, description="OGRN")
+    status: SellerRegistrationRequestStatus = Field(
+        ..., description="Request status"
+    )
+    terms_accepted: bool = Field(..., description="Terms accepted flag")
+    created_at: datetime = Field(..., description="Creation date")
+    updated_at: datetime = Field(..., description="Last update date")
 
 
 class SellerSummary(BaseModel):

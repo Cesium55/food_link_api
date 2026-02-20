@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
 from app.sellers import schemas
-from app.sellers.models import Seller, SellerImage
+from app.sellers.models import Seller, SellerImage, SellerRegistrationRequest
 from app.shop_points.models import ShopPoint
 from app.products.models import Product
 from app.auth.models import User
@@ -310,3 +310,59 @@ class SellersService:
             select(Seller.firebase_token).where(Seller.id == seller_id)
         )
         return result.scalar_one_or_none()
+
+    async def get_registration_request_by_user_id(
+        self, session: AsyncSession, user_id: int
+    ) -> Optional[SellerRegistrationRequest]:
+        """Get seller registration request by user ID."""
+        result = await session.execute(
+            select(SellerRegistrationRequest).where(
+                SellerRegistrationRequest.user_id == user_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def create_registration_request(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        schema: schemas.SellerRegistrationRequestCreate,
+    ) -> SellerRegistrationRequest:
+        """Create seller registration request for user."""
+        payload = schema.model_dump(exclude_unset=True)
+        result = await session.execute(
+            insert(SellerRegistrationRequest)
+            .values(
+                user_id=user_id,
+                status=schemas.SellerRegistrationRequestStatus.PENDING.value,
+                **payload,
+            )
+            .returning(SellerRegistrationRequest)
+        )
+        return result.scalar_one()
+
+    async def update_registration_request(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        schema: schemas.SellerRegistrationRequestUpdate,
+    ) -> Optional[SellerRegistrationRequest]:
+        """Update seller registration request for user."""
+        payload = schema.model_dump(exclude_unset=True)
+        if payload:
+            await session.execute(
+                update(SellerRegistrationRequest)
+                .where(SellerRegistrationRequest.user_id == user_id)
+                .values(**payload)
+            )
+        return await self.get_registration_request_by_user_id(session, user_id)
+
+    async def delete_registration_request(
+        self, session: AsyncSession, user_id: int
+    ) -> None:
+        """Delete seller registration request for user."""
+        await session.execute(
+            delete(SellerRegistrationRequest).where(
+                SellerRegistrationRequest.user_id == user_id
+            )
+        )

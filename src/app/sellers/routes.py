@@ -51,6 +51,64 @@ async def get_sellers(
     )
 
 
+@router.get("/registration-request", response_model=schemas.SellerRegistrationRequest)
+async def get_my_registration_request(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> schemas.SellerRegistrationRequest:
+    """
+    Get current user's seller registration request.
+    """
+    return await sellers_manager.get_my_registration_request(
+        request.state.session, current_user
+    )
+
+
+@router.post(
+    "/registration-request",
+    response_model=schemas.SellerRegistrationRequest,
+    status_code=201,
+)
+async def create_my_registration_request(
+    request: Request,
+    request_data: schemas.SellerRegistrationRequestCreate,
+    current_user: User = Depends(get_current_user),
+) -> schemas.SellerRegistrationRequest:
+    """
+    Create seller registration request for current user.
+    """
+    return await sellers_manager.create_my_registration_request(
+        request.state.session, request_data, current_user
+    )
+
+
+@router.put("/registration-request", response_model=schemas.SellerRegistrationRequest)
+async def update_my_registration_request(
+    request: Request,
+    request_data: schemas.SellerRegistrationRequestUpdate,
+    current_user: User = Depends(get_current_user),
+) -> schemas.SellerRegistrationRequest:
+    """
+    Update current user's seller registration request.
+    """
+    return await sellers_manager.update_my_registration_request(
+        request.state.session, request_data, current_user
+    )
+
+
+@router.delete("/registration-request", status_code=204)
+async def delete_my_registration_request(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """
+    Delete current user's seller registration request.
+    """
+    await sellers_manager.delete_my_registration_request(
+        request.state.session, current_user
+    )
+
+
 @router.get("/{seller_id}", response_model=schemas.PublicSeller)
 async def get_seller(request: Request, seller_id: int) -> schemas.PublicSeller:
     """

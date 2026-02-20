@@ -16,7 +16,11 @@ from app.admin.purchases_views import (
     PurchaseOfferAdmin,
     PurchaseOfferResultAdmin,
 )
-from app.admin.sellers_views import SellerAdmin, SellerImageAdmin
+from app.admin.sellers_views import (
+    SellerAdmin,
+    SellerImageAdmin,
+    SellerRegistrationRequestAdmin,
+)
 from app.admin.shop_points_views import ShopPointAdmin, ShopPointImageAdmin
 from app.admin.support_views import (
     MasterChatAdmin,
@@ -41,6 +45,7 @@ __all__ = [
     "PurchaseOfferResultAdmin",
     "SellerAdmin",
     "SellerImageAdmin",
+    "SellerRegistrationRequestAdmin",
     "ShopPointAdmin",
     "ShopPointImageAdmin",
     "MasterChatAdmin",

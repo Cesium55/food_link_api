@@ -1,10 +1,13 @@
+from datetime import datetime, timezone
 from typing import List, Optional, TYPE_CHECKING
 from sqlalchemy import Column, Integer, String, CheckConstraint, ForeignKey, Numeric, Boolean, Text
+from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models import Base, ImageMixin
 
 if TYPE_CHECKING:
+    from app.auth.models import User
     from app.shop_points.models import ShopPoint
     from app.products.models import Product
 
@@ -52,3 +55,49 @@ class SellerImage(ImageMixin, Base):
     )
 
     seller: Mapped["Seller"] = relationship("Seller", back_populates="images")
+
+
+class SellerRegistrationRequest(Base):
+    """Seller registration request model."""
+
+    __tablename__ = "seller_registration_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True
+    )
+
+    # User-entered fields are nullable to support draft-like edits.
+    full_name: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    short_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    inn: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)
+    is_IP: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    ogrn: Mapped[Optional[str]] = mapped_column(String(15), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="pending"
+    )
+    terms_accepted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'rejected', 'approved')",
+            name="ck_seller_registration_request_status_valid",
+        ),
+    )
+
+    user: Mapped["User"] = relationship("User")

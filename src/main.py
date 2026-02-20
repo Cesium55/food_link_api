@@ -98,6 +98,7 @@ admin_views = [
     admin_models.PurchaseOfferResultAdmin,
     admin_models.SellerAdmin,
     admin_models.SellerImageAdmin,
+    admin_models.SellerRegistrationRequestAdmin,
     admin_models.ShopPointAdmin,
     admin_models.ShopPointImageAdmin,
     admin_models.MasterChatAdmin,

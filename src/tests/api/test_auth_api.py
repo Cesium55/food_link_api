@@ -429,3 +429,4 @@ class TestResendVerificationCodeAPI:
         assert "message" in data
         assert "phone" in data
         mock_sms_manager.send_verification_code.assert_called_once()
+

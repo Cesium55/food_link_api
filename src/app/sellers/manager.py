@@ -13,6 +13,7 @@ from app.auth.password_utils import PasswordUtils
 from utils.errors_handler import handle_alchemy_error
 from app.sellers.models import Seller
 from app.auth.service import AuthService
+from app.support.service import SupportService
 from utils.image_manager import ImageManager
 from utils.firebase_notification_manager import FirebaseNotificationManager
 from fastapi import UploadFile
@@ -29,8 +30,34 @@ class SellersManager:
         self.products_service = ProductsService()
         self.password_utils = PasswordUtils()
         self.auth_service = AuthService()
+        self.support_service = SupportService()
         self.image_manager = ImageManager()
         self.notification_manager = FirebaseNotificationManager()
+
+    @staticmethod
+    def _is_registration_request_ready_for_submission(
+        request: schemas.SellerRegistrationRequest,
+    ) -> bool:
+        return all(
+            [
+                request.full_name is not None and request.full_name.strip() != "",
+                request.short_name is not None and request.short_name.strip() != "",
+                request.inn is not None and request.inn.strip() != "",
+                request.is_IP is not None,
+                request.ogrn is not None and request.ogrn.strip() != "",
+                request.terms_accepted,
+            ]
+        )
+
+    async def _send_system_master_chat_message(
+        self, session: AsyncSession, user_id: int, text: str
+    ) -> None:
+        await self.support_service.create_master_chat_message(
+            session=session,
+            user_id=user_id,
+            sender_type="system",
+            message_text=text,
+        )
 
     @handle_alchemy_error
     async def create_seller(
@@ -349,3 +376,140 @@ class SellersManager:
                 }
             )
             # Don't raise exception - notification failure shouldn't break business logic
+
+    async def get_my_registration_request(
+        self, session: AsyncSession, current_user: User
+    ) -> schemas.SellerRegistrationRequest:
+        """Get current user's seller registration request."""
+        request = await self.service.get_registration_request_by_user_id(
+            session, current_user.id
+        )
+        if not request:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Seller registration request not found",
+            )
+        return schemas.SellerRegistrationRequest.model_validate(request)
+
+    @handle_alchemy_error
+    async def create_my_registration_request(
+        self,
+        session: AsyncSession,
+        request_data: schemas.SellerRegistrationRequestCreate,
+        current_user: User,
+    ) -> schemas.SellerRegistrationRequest:
+        """Create seller registration request for current user."""
+        if current_user.is_seller:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Seller account already exists for this user",
+            )
+        if not current_user.email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User email is required to create seller registration request",
+            )
+
+        existing_request = await self.service.get_registration_request_by_user_id(
+            session, current_user.id
+        )
+        if existing_request:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User already has a seller registration request",
+            )
+
+        created_request = await self.service.create_registration_request(
+            session, current_user.id, request_data
+        )
+        created_request_schema = schemas.SellerRegistrationRequest.model_validate(
+            created_request
+        )
+        if self._is_registration_request_ready_for_submission(created_request_schema):
+            await self._send_system_master_chat_message(
+                session=session,
+                user_id=current_user.id,
+                text=(
+                    "Ваша заявка на регистрацию продавца получена. Пожалуйста подождите "
+                    "пока мы проверим ее. Любые интересующие вас вопросы Вы можете задать в этом чате."
+                ),
+            )
+        await session.commit()
+        return created_request_schema
+
+    @handle_alchemy_error
+    async def update_my_registration_request(
+        self,
+        session: AsyncSession,
+        request_data: schemas.SellerRegistrationRequestUpdate,
+        current_user: User,
+    ) -> schemas.SellerRegistrationRequest:
+        """Update seller registration request for current user."""
+        if current_user.is_seller:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Seller account already exists for this user",
+            )
+        if not current_user.email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User email is required to update seller registration request",
+            )
+
+        existing_request = await self.service.get_registration_request_by_user_id(
+            session, current_user.id
+        )
+        if not existing_request:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Seller registration request not found",
+            )
+
+        existing_request_schema = schemas.SellerRegistrationRequest.model_validate(
+            existing_request
+        )
+        updated_request = await self.service.update_registration_request(
+            session, current_user.id, request_data
+        )
+        updated_request_schema = schemas.SellerRegistrationRequest.model_validate(
+            updated_request
+        )
+        if (
+            not self._is_registration_request_ready_for_submission(
+                existing_request_schema
+            )
+            and self._is_registration_request_ready_for_submission(updated_request_schema)
+        ):
+            await self._send_system_master_chat_message(
+                session=session,
+                user_id=current_user.id,
+                text=(
+                    "Ваша заявка на регистрацию продавца получена. Пожалуйста подождите "
+                    "пока мы проверим ее. Любые интересующие вас вопросы Вы можете задать в этом чате."
+                ),
+            )
+        await session.commit()
+        return updated_request_schema
+
+    @handle_alchemy_error
+    async def delete_my_registration_request(
+        self, session: AsyncSession, current_user: User
+    ) -> None:
+        """Delete seller registration request for current user."""
+        if current_user.is_seller:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Seller account already exists for this user",
+            )
+
+        existing_request = await self.service.get_registration_request_by_user_id(
+            session, current_user.id
+        )
+        if not existing_request:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Seller registration request not found",
+            )
+
+        await self.service.delete_registration_request(session, current_user.id)
+        await session.commit()

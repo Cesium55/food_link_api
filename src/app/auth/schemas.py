@@ -66,6 +66,12 @@ class FirebaseTokenRequest(BaseModel):
     token: str = Field(..., min_length=1, max_length=500, description="Firebase Cloud Messaging registration token")
 
 
+class BindEmailRequest(BaseModel):
+    """Schema for binding email to current user."""
+
+    email: EmailStr = Field(..., description="Email to bind to current user")
+
+
 class UserLastLocationUpdate(BaseModel):
     """Schema for updating user's last known location"""
     latitude: float = Field(..., ge=-90.0, le=90.0, description="Last known latitude coordinate (-90 to 90)")

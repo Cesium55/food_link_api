@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from sqlalchemy import insert, select, update, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
@@ -38,6 +39,27 @@ class SupportService:
     async def create_master_chat_message(
         self, session: AsyncSession, user_id: int, sender_type: str, message_text: str
     ) -> MasterChatMessage:
+        bind = session.get_bind()
+        dialect_name = bind.dialect.name if bind is not None else ""
+
+        # Lazy init: create chat only when we are about to write the first message.
+        if dialect_name == "postgresql":
+            await session.execute(
+                pg_insert(MasterChat)
+                .values(user_id=user_id)
+                .on_conflict_do_nothing(index_elements=[MasterChat.user_id])
+            )
+        elif dialect_name == "sqlite":
+            await session.execute(
+                insert(MasterChat)
+                .values(user_id=user_id)
+                .prefix_with("OR IGNORE")
+            )
+        else:
+            master_chat = await self.get_master_chat_by_user_id(session, user_id)
+            if master_chat is None:
+                await self.create_master_chat(session, user_id)
+
         result = await session.execute(
             insert(MasterChatMessage)
             .values(

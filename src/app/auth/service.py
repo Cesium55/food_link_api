@@ -102,6 +102,15 @@ class AuthService:
             update(User).where(User.id == user_id).values(is_seller=is_seller).returning(User)
         )
         return result.scalar_one()
+
+    async def update_user_email(
+        self, session: AsyncSession, user_id: int, email: str
+    ) -> User:
+        """Update user email field."""
+        result = await session.execute(
+            update(User).where(User.id == user_id).values(email=email).returning(User)
+        )
+        return result.scalar_one()
     
     async def delete_user(self, session: AsyncSession, user_id: int) -> bool:
         """Delete user by ID and all associated refresh tokens"""

@@ -335,6 +335,39 @@ class AuthManager:
         }
 
     @handle_alchemy_error
+    async def bind_email(
+        self, session: AsyncSession, user_id: int, email: str
+    ) -> dict:
+        """Bind email for current user without verification."""
+        user = await self.service.get_user(session, user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+
+        if user.email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User already has an email",
+            )
+
+        existing_user = await self.service.get_user_by_email(session, email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User with this email already exists",
+            )
+
+        await self.service.update_user_email(session, user_id, email)
+        await session.commit()
+        return {
+            "message": "Email bound successfully",
+            "user_id": user_id,
+            "email": email,
+        }
+
+    @handle_alchemy_error
     async def update_user_last_location(
         self, session: AsyncSession, user_id: int, latitude: float, longitude: float
     ) -> dict:
