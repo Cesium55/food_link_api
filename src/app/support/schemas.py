@@ -83,3 +83,23 @@ class MasterChatWebSocketOutgoing(BaseModel):
     messages: List[MasterChatMessage] = Field(default_factory=list)
     updated_count: Optional[int] = None
     detail: Optional[str] = None
+
+
+class MasterChatAdminChatListItem(BaseModel):
+    """Single open MasterChat item for admin sidebar list."""
+
+    user_id: int
+    user_email: Optional[str] = None
+    user_phone: Optional[str] = None
+    is_closed: bool
+    updated_at: datetime
+    last_message_text: Optional[str] = None
+    last_message_created_at: Optional[datetime] = None
+    unread_user_messages_count: int = 0
+
+
+class MasterChatAdminChatsPage(BaseModel):
+    """Paginated admin response for open MasterChat list."""
+
+    items: List[MasterChatAdminChatListItem]
+    pagination: dict

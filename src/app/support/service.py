@@ -1,8 +1,9 @@
 from typing import List, Optional
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.models import User
 from app.support.models import MasterChat, MasterChatMessage
 
 
@@ -74,3 +75,51 @@ class SupportService:
             .values(is_read=True)
         )
         return result.rowcount or 0
+
+    async def get_open_master_chats_page(
+        self, session: AsyncSession, page: int, page_size: int
+    ) -> tuple[List[MasterChat], int]:
+        total_count_result = await session.execute(
+            select(func.count()).select_from(MasterChat).where(MasterChat.is_closed.is_(False))
+        )
+        total_count = int(total_count_result.scalar_one() or 0)
+        offset = (page - 1) * page_size
+        chats_result = await session.execute(
+            select(MasterChat)
+            .where(MasterChat.is_closed.is_(False))
+            .order_by(MasterChat.updated_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+        return list(chats_result.scalars().all()), total_count
+
+    async def get_master_chat_user(
+        self, session: AsyncSession, user_id: int
+    ) -> Optional[User]:
+        result = await session.execute(select(User).where(User.id == user_id))
+        return result.scalar_one_or_none()
+
+    async def get_last_master_chat_message(
+        self, session: AsyncSession, user_id: int
+    ) -> Optional[MasterChatMessage]:
+        result = await session.execute(
+            select(MasterChatMessage)
+            .where(MasterChatMessage.user_id == user_id)
+            .order_by(MasterChatMessage.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def count_unread_user_master_chat_messages(
+        self, session: AsyncSession, user_id: int
+    ) -> int:
+        result = await session.execute(
+            select(func.count())
+            .select_from(MasterChatMessage)
+            .where(
+                MasterChatMessage.user_id == user_id,
+                MasterChatMessage.sender_type == "user",
+                MasterChatMessage.is_read.is_(False),
+            )
+        )
+        return int(result.scalar_one() or 0)

@@ -11,10 +11,13 @@ from utils.websocket_manager import KeyedWebSocketManager
 class MasterChatWebSocketManager:
     """Support-domain websocket orchestration for MasterChat."""
 
+    MASTER_CHAT_ADMIN_CONNECTIONS_KEY = "master_chat_admin_connections"
+
     def __init__(self) -> None:
         self.auth_manager = AuthManager()
         self.support_manager = SupportManager()
         self.connection_manager = KeyedWebSocketManager()
+        self.master_chat_admin_connection_manager = KeyedWebSocketManager()
 
     @staticmethod
     def extract_access_token(websocket: WebSocket) -> str | None:
@@ -37,6 +40,9 @@ class MasterChatWebSocketManager:
             message=master_chat_message,
         ).model_dump()
         await self.connection_manager.broadcast(user_id, payload)
+        await self.master_chat_admin_connection_manager.broadcast(
+            self.MASTER_CHAT_ADMIN_CONNECTIONS_KEY, payload
+        )
 
     async def broadcast_master_chat_read_state(
         self, user_id: int, updated_count: int
@@ -46,6 +52,10 @@ class MasterChatWebSocketManager:
             updated_count=updated_count,
         ).model_dump()
         await self.connection_manager.broadcast(user_id, payload)
+        await self.master_chat_admin_connection_manager.broadcast(
+            self.MASTER_CHAT_ADMIN_CONNECTIONS_KEY,
+            payload,
+        )
 
     async def broadcast_master_chat_updated(
         self, user_id: int, master_chat: schemas.MasterChat
@@ -55,6 +65,10 @@ class MasterChatWebSocketManager:
             chat=master_chat,
         ).model_dump()
         await self.connection_manager.broadcast(user_id, payload)
+        await self.master_chat_admin_connection_manager.broadcast(
+            self.MASTER_CHAT_ADMIN_CONNECTIONS_KEY,
+            payload,
+        )
 
     async def handle_master_chat_websocket(self, websocket: WebSocket) -> None:
         token = self.extract_access_token(websocket)
@@ -139,11 +153,47 @@ class MasterChatWebSocketManager:
                     user_id=current_user.id,
                     master_chat_message=created_master_chat_message,
                 )
+                async with get_async_session() as session:
+                    updated_master_chat = await self.support_manager.get_or_create_master_chat(
+                        session=session,
+                        user_id=current_user.id,
+                    )
+                await self.broadcast_master_chat_updated(
+                    user_id=current_user.id,
+                    master_chat=updated_master_chat,
+                )
 
         except WebSocketDisconnect:
             await self.connection_manager.disconnect(current_user.id, websocket)
         except Exception:
             await self.connection_manager.disconnect(current_user.id, websocket)
+            try:
+                await websocket.close(code=1011, reason="Internal websocket error")
+            except Exception:
+                pass
+
+    async def handle_master_chat_admin_websocket(self, websocket: WebSocket) -> None:
+        await self.master_chat_admin_connection_manager.connect(
+            self.MASTER_CHAT_ADMIN_CONNECTIONS_KEY,
+            websocket,
+        )
+        try:
+            await websocket.send_json({"event": "admin_connected"})
+            while True:
+                payload = await websocket.receive_json()
+                action = payload.get("action")
+                if action == "ping":
+                    await websocket.send_json({"event": "pong"})
+        except WebSocketDisconnect:
+            await self.master_chat_admin_connection_manager.disconnect(
+                self.MASTER_CHAT_ADMIN_CONNECTIONS_KEY,
+                websocket,
+            )
+        except Exception:
+            await self.master_chat_admin_connection_manager.disconnect(
+                self.MASTER_CHAT_ADMIN_CONNECTIONS_KEY,
+                websocket,
+            )
             try:
                 await websocket.close(code=1011, reason="Internal websocket error")
             except Exception:

@@ -54,11 +54,15 @@ class SupportManager:
         if master_chat is None:
             master_chat = await self.service.create_master_chat(session, user_id)
 
+        # Any new user message re-opens the dialog.
         if master_chat.is_closed and sender_type == "user":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Chat is closed",
+            updated_chat = await self.service.set_master_chat_closed(
+                session=session,
+                user_id=user_id,
+                is_closed=False,
             )
+            if updated_chat is not None:
+                master_chat = updated_chat
 
         master_chat_message = await self.service.create_master_chat_message(
             session=session,
@@ -94,3 +98,52 @@ class SupportManager:
                 detail="Chat not found",
             )
         return schemas.MasterChat.model_validate(updated_master_chat)
+
+    @handle_alchemy_error
+    async def get_open_master_chats_page(
+        self, session: AsyncSession, page: int = 1, page_size: int = 20
+    ) -> schemas.MasterChatAdminChatsPage:
+        page = max(1, page)
+        page_size = min(max(1, page_size), 100)
+        open_chats, total_count = await self.service.get_open_master_chats_page(
+            session=session,
+            page=page,
+            page_size=page_size,
+        )
+        items: list[schemas.MasterChatAdminChatListItem] = []
+        for master_chat in open_chats:
+            user = await self.service.get_master_chat_user(session, master_chat.user_id)
+            last_message = await self.service.get_last_master_chat_message(
+                session, master_chat.user_id
+            )
+            unread_count = await self.service.count_unread_user_master_chat_messages(
+                session, master_chat.user_id
+            )
+            items.append(
+                schemas.MasterChatAdminChatListItem(
+                    user_id=master_chat.user_id,
+                    user_email=user.email if user else None,
+                    user_phone=user.phone if user else None,
+                    is_closed=master_chat.is_closed,
+                    updated_at=master_chat.updated_at,
+                    last_message_text=(
+                        last_message.message_text if last_message is not None else None
+                    ),
+                    last_message_created_at=(
+                        last_message.created_at if last_message is not None else None
+                    ),
+                    unread_user_messages_count=unread_count,
+                )
+            )
+        total_pages = max(1, (total_count + page_size - 1) // page_size)
+        return schemas.MasterChatAdminChatsPage(
+            items=items,
+            pagination={
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_count,
+                "total_pages": total_pages,
+                "has_prev": page > 1,
+                "has_next": page < total_pages,
+            },
+        )

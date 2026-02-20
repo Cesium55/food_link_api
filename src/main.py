@@ -102,6 +102,7 @@ admin_views = [
     admin_models.ShopPointImageAdmin,
     admin_models.MasterChatAdmin,
     admin_models.MasterChatMessageAdmin,
+    admin_models.MasterChatSupportView,
     admin_models.ReportView,
 ]
 for v in admin_views:

@@ -220,18 +220,27 @@ class TestSupportManager:
         assert exc.value.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_create_master_chat_message_when_chat_closed_for_user(self, support_manager, mock_session):
+    async def test_create_master_chat_message_reopens_chat_for_user_message(self, support_manager, mock_session):
         closed_chat = create_master_chat(is_closed=True)
+        created_message = create_master_chat_message(message_text="hello")
         support_manager.service.get_master_chat_by_user_id = AsyncMock(return_value=closed_chat)
+        support_manager.service.set_master_chat_closed = AsyncMock(return_value=create_master_chat(is_closed=False))
+        support_manager.service.create_master_chat_message = AsyncMock(return_value=created_message)
 
-        with pytest.raises(HTTPException) as exc:
-            await support_manager.create_master_chat_message(
-                session=mock_session,
-                user_id=TEST_USER_ID,
-                message_data=schemas.MasterChatMessageCreate(message_text="hello"),
-                sender_type="user",
-            )
-        assert exc.value.status_code == 409
+        result = await support_manager.create_master_chat_message(
+            session=mock_session,
+            user_id=TEST_USER_ID,
+            message_data=schemas.MasterChatMessageCreate(message_text="hello"),
+            sender_type="user",
+        )
+
+        assert isinstance(result, schemas.MasterChatMessage)
+        support_manager.service.set_master_chat_closed.assert_called_once_with(
+            session=mock_session,
+            user_id=TEST_USER_ID,
+            is_closed=False,
+        )
+        support_manager.service.create_master_chat_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_master_chat_message_creates_chat_if_missing(self, support_manager, mock_session):
