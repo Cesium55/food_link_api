@@ -494,6 +494,72 @@ class PurchasesManager:
             page_size=page_size,
             total_items=total_count
         )
+
+    async def get_seller_purchases_paginated(
+        self,
+        session: AsyncSession,
+        seller_id: int,
+        page: int,
+        page_size: int,
+        purchase_status: Optional[str] = None,
+        fulfillment_status: Optional[str] = None,
+        min_created_at: Optional[datetime] = None,
+        max_created_at: Optional[datetime] = None,
+        min_updated_at: Optional[datetime] = None,
+        max_updated_at: Optional[datetime] = None
+    ) -> PaginatedResponse[schemas.PurchaseWithOffers]:
+        """Get paginated purchases for current seller (only seller's items in each purchase)."""
+        if purchase_status is not None:
+            valid_statuses = {purchase_status.value for purchase_status in PurchaseStatus}
+            if purchase_status not in valid_statuses:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid status. Valid statuses: {', '.join(sorted(valid_statuses))}"
+                )
+
+        valid_fulfillment_statuses = {"fulfilled", "not_fulfilled", "unprocessed"}
+        if fulfillment_status is not None and fulfillment_status not in valid_fulfillment_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid fulfillment_status. Valid values: {', '.join(sorted(valid_fulfillment_statuses))}"
+            )
+
+        purchases, total_count, purchase_offers_map = await self.service.get_seller_purchases_paginated(
+            session=session,
+            seller_id=seller_id,
+            page=page,
+            page_size=page_size,
+            status=purchase_status,
+            fulfillment_status=fulfillment_status,
+            min_created_at=min_created_at,
+            max_created_at=max_created_at,
+            min_updated_at=min_updated_at,
+            max_updated_at=max_updated_at,
+        )
+
+        purchases_with_offers: List[schemas.PurchaseWithOffers] = []
+        for purchase in purchases:
+            seller_offers = purchase_offers_map.get(purchase.id, [])
+            offers_dict = {
+                purchase_offer.offer_id: purchase_offer.offer
+                for purchase_offer in seller_offers
+                if purchase_offer.offer is not None
+            }
+            purchases_with_offers.append(
+                self._purchase_to_schema_with_offers(
+                    purchase=purchase,
+                    purchase_offers=seller_offers,
+                    offers_dict=offers_dict,
+                    offer_results=[],
+                )
+            )
+
+        return PaginatedResponse.create(
+            items=purchases_with_offers,
+            page=page,
+            page_size=page_size,
+            total_items=total_count
+        )
     
     async def get_purchases(
         self, session: AsyncSession,
@@ -1028,4 +1094,3 @@ class PurchasesManager:
             fulfilled_items=fulfilled_items,
             purchase_status=purchase.status
         )
-

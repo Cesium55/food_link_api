@@ -4,7 +4,9 @@ from fastapi import APIRouter, Request, Depends, HTTPException, status, Query
 from app.purchases import schemas
 from app.purchases.manager import PurchasesManager
 from utils.auth_dependencies import get_current_user
+from utils.seller_dependencies import get_current_seller
 from app.auth.models import User
+from app.sellers.models import Seller
 from utils.response_logger import log_response
 from utils.pagination import PaginatedResponse
 from utils.debug_logger import hard_log
@@ -94,6 +96,40 @@ async def get_pending_purchase(
     """
     return await purchases_manager.get_pending_purchase_by_user(
         request.state.session, current_user.id
+    )
+
+
+@router.get("/seller", response_model=PaginatedResponse[schemas.PurchaseWithOffers])
+async def get_seller_purchases(
+    request: Request,
+    current_seller: Seller = Depends(get_current_seller),
+    page: int = Query(default=1, ge=1, description="Page number (starts from 1)"),
+    page_size: int = Query(default=20, ge=1, le=100, description="Number of items per page"),
+    status: Optional[str] = Query(default=None, description="Filter by purchase status"),
+    fulfillment_status: Optional[str] = Query(
+        default=None,
+        description="Filter by seller fulfillment status: fulfilled, not_fulfilled, unprocessed",
+    ),
+    min_created_at: Optional[datetime] = Query(default=None, description="Minimum creation date"),
+    max_created_at: Optional[datetime] = Query(default=None, description="Maximum creation date"),
+    min_updated_at: Optional[datetime] = Query(default=None, description="Minimum update date"),
+    max_updated_at: Optional[datetime] = Query(default=None, description="Maximum update date")
+) -> PaginatedResponse[schemas.PurchaseWithOffers]:
+    """
+    Get seller purchases with seller-scoped items only.
+    Seller is resolved from current authenticated user.
+    """
+    return await purchases_manager.get_seller_purchases_paginated(
+        session=request.state.session,
+        seller_id=current_seller.id,
+        page=page,
+        page_size=page_size,
+        purchase_status=status,
+        fulfillment_status=fulfillment_status,
+        min_created_at=min_created_at,
+        max_created_at=max_created_at,
+        min_updated_at=min_updated_at,
+        max_updated_at=max_updated_at,
     )
 
 
@@ -243,4 +279,3 @@ async def fulfill_order_items(
     return await purchases_manager.fulfill_order_items(
         request.state.session, purchase_id, fulfillment_data, seller.id
     )
-

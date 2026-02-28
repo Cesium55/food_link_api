@@ -382,6 +382,66 @@ class TestPurchasesService:
         assert total_count == 1
 
     @pytest.mark.asyncio
+    async def test_get_seller_purchases_paginated(
+        self, purchases_service, mock_session, mock_purchase, mock_purchase_offer, mock_offer
+    ):
+        """Test getting paginated purchases for seller."""
+        mock_purchase_offer.offer = mock_offer
+
+        mock_count_result = create_mock_scalar_result(1)
+        mock_purchase_ids_result = Mock()
+        mock_purchase_ids_result.all.return_value = [(TEST_PURCHASE_ID,)]
+        mock_purchases_result = create_mock_scalars_result([mock_purchase])
+        mock_purchase_offers_result = create_mock_scalars_result([mock_purchase_offer])
+
+        mock_session.execute.side_effect = [
+            mock_count_result,
+            mock_purchase_ids_result,
+            mock_purchases_result,
+            mock_purchase_offers_result,
+        ]
+
+        purchases, total_count, purchase_offers_map = await purchases_service.get_seller_purchases_paginated(
+            session=mock_session,
+            seller_id=TEST_SELLER_ID,
+            page=1,
+            page_size=10,
+            status=PurchaseStatus.PENDING.value,
+            fulfillment_status="unprocessed",
+        )
+
+        assert total_count == 1
+        assert len(purchases) == 1
+        assert purchases[0].id == TEST_PURCHASE_ID
+        assert TEST_PURCHASE_ID in purchase_offers_map
+        assert len(purchase_offers_map[TEST_PURCHASE_ID]) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_seller_purchases_paginated_empty_page(
+        self, purchases_service, mock_session
+    ):
+        """Test getting paginated purchases for seller with no records on page."""
+        mock_count_result = create_mock_scalar_result(0)
+        mock_purchase_ids_result = Mock()
+        mock_purchase_ids_result.all.return_value = []
+
+        mock_session.execute.side_effect = [
+            mock_count_result,
+            mock_purchase_ids_result,
+        ]
+
+        purchases, total_count, purchase_offers_map = await purchases_service.get_seller_purchases_paginated(
+            session=mock_session,
+            seller_id=TEST_SELLER_ID,
+            page=1,
+            page_size=10,
+        )
+
+        assert total_count == 0
+        assert purchases == []
+        assert purchase_offers_map == {}
+
+    @pytest.mark.asyncio
     async def test_get_pending_purchase_by_user_found(
         self, purchases_service, mock_session, mock_purchase
     ):
@@ -667,6 +727,30 @@ class TestPurchasesManager:
         assert result.pagination.total_items == 1
         assert len(result.items) == 1
         assert isinstance(result.items[0], schemas.Purchase)
+
+    @pytest.mark.asyncio
+    async def test_get_seller_purchases_paginated(
+        self, purchases_manager, mock_session, mock_purchase, mock_purchase_offer, mock_offer
+    ):
+        """Test getting seller purchases with purchase items."""
+        mock_purchase_offer.offer = mock_offer
+        purchases_manager.service.get_seller_purchases_paginated = AsyncMock(
+            return_value=([mock_purchase], 1, {TEST_PURCHASE_ID: [mock_purchase_offer]})
+        )
+
+        result = await purchases_manager.get_seller_purchases_paginated(
+            session=mock_session,
+            seller_id=TEST_SELLER_ID,
+            page=1,
+            page_size=10,
+            purchase_status=PurchaseStatus.PENDING.value,
+        )
+
+        assert result.pagination.total_items == 1
+        assert len(result.items) == 1
+        assert isinstance(result.items[0], schemas.PurchaseWithOffers)
+        assert result.items[0].id == TEST_PURCHASE_ID
+        assert len(result.items[0].purchase_offers) == 1
 
     @pytest.mark.asyncio
     async def test_update_purchase_status_success(

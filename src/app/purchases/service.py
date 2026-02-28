@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.purchases.models import Purchase, PurchaseOffer, PurchaseOfferResult
 from app.offers.models import Offer
+from app.shop_points.models import ShopPoint
 
 
 class PurchasesService:
@@ -142,6 +143,97 @@ class PurchasesService:
         purchases = result.scalars().all()
         
         return list(purchases), total_count
+
+    async def get_seller_purchases_paginated(
+        self,
+        session: AsyncSession,
+        seller_id: int,
+        page: int,
+        page_size: int,
+        status: Optional[str] = None,
+        fulfillment_status: Optional[str] = None,
+        min_created_at: Optional[datetime] = None,
+        max_created_at: Optional[datetime] = None,
+        min_updated_at: Optional[datetime] = None,
+        max_updated_at: Optional[datetime] = None
+    ) -> tuple[List[Purchase], int, Dict[int, List[PurchaseOffer]]]:
+        """Get paginated purchases containing current seller's offers only."""
+        conditions = [ShopPoint.seller_id == seller_id]
+
+        if status is not None:
+            conditions.append(Purchase.status == status)
+        if min_created_at is not None:
+            conditions.append(Purchase.created_at >= min_created_at)
+        if max_created_at is not None:
+            conditions.append(Purchase.created_at <= max_created_at)
+        if min_updated_at is not None:
+            conditions.append(Purchase.updated_at >= min_updated_at)
+        if max_updated_at is not None:
+            conditions.append(Purchase.updated_at <= max_updated_at)
+
+        if fulfillment_status == "unprocessed":
+            conditions.append(PurchaseOffer.fulfillment_status.is_(None))
+        elif fulfillment_status is not None:
+            conditions.append(PurchaseOffer.fulfillment_status == fulfillment_status)
+
+        count_query = (
+            select(func.count(func.distinct(Purchase.id)))
+            .select_from(Purchase)
+            .join(PurchaseOffer, PurchaseOffer.purchase_id == Purchase.id)
+            .join(Offer, Offer.id == PurchaseOffer.offer_id)
+            .join(ShopPoint, ShopPoint.id == Offer.shop_id)
+            .where(and_(*conditions))
+        )
+        count_result = await session.execute(count_query)
+        total_count = count_result.scalar() or 0
+
+        offset = (page - 1) * page_size
+        purchase_ids_query = (
+            select(Purchase.id)
+            .join(PurchaseOffer, PurchaseOffer.purchase_id == Purchase.id)
+            .join(Offer, Offer.id == PurchaseOffer.offer_id)
+            .join(ShopPoint, ShopPoint.id == Offer.shop_id)
+            .where(and_(*conditions))
+            .distinct()
+            .order_by(Purchase.created_at.desc())
+            .limit(page_size)
+            .offset(offset)
+        )
+        purchase_ids_result = await session.execute(purchase_ids_query)
+        purchase_ids = [row[0] for row in purchase_ids_result.all()]
+
+        if not purchase_ids:
+            return [], total_count, {}
+
+        purchases_result = await session.execute(
+            select(Purchase).where(Purchase.id.in_(purchase_ids))
+        )
+        purchases = list(purchases_result.scalars().all())
+        purchases_by_id = {purchase.id: purchase for purchase in purchases}
+        ordered_purchases = [purchases_by_id[purchase_id] for purchase_id in purchase_ids if purchase_id in purchases_by_id]
+
+        purchase_offers_result = await session.execute(
+            select(PurchaseOffer)
+            .join(Offer, Offer.id == PurchaseOffer.offer_id)
+            .join(ShopPoint, ShopPoint.id == Offer.shop_id)
+            .where(
+                and_(
+                    PurchaseOffer.purchase_id.in_(purchase_ids),
+                    ShopPoint.seller_id == seller_id
+                )
+            )
+            .options(
+                selectinload(PurchaseOffer.offer).selectinload(Offer.product),
+                selectinload(PurchaseOffer.offer).selectinload(Offer.shop_point),
+            )
+        )
+        seller_purchase_offers = list(purchase_offers_result.scalars().all())
+
+        purchase_offers_map: Dict[int, List[PurchaseOffer]] = {}
+        for purchase_offer in seller_purchase_offers:
+            purchase_offers_map.setdefault(purchase_offer.purchase_id, []).append(purchase_offer)
+
+        return ordered_purchases, total_count, purchase_offers_map
     
     async def get_purchases(
         self, session: AsyncSession,
@@ -366,4 +458,3 @@ class PurchasesService:
                 return False
         
         return True
-
