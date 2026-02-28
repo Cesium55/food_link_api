@@ -189,7 +189,7 @@ class PurchasesService:
 
         offset = (page - 1) * page_size
         purchase_ids_query = (
-            select(Purchase.id)
+            select(Purchase.id, Purchase.created_at)
             .join(PurchaseOffer, PurchaseOffer.purchase_id == Purchase.id)
             .join(Offer, Offer.id == PurchaseOffer.offer_id)
             .join(ShopPoint, ShopPoint.id == Offer.shop_id)
