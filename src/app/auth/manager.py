@@ -8,7 +8,6 @@ from app.auth.models import User
 from app.auth import schemas
 from app.sellers.service import SellersService
 from utils.errors_handler import handle_alchemy_error
-from utils.exolve_sms_manager import create_exolve_sms_manager
 from utils.redis.verification_codes import store_verification_code, verify_code, _format_phone_number
 from config import settings
 from logger import get_sync_logger
@@ -63,6 +62,14 @@ class AuthManager:
     def _format_phone_number(self, phone: str) -> str:
         """Format phone number to standard format"""
         return _format_phone_number(phone)
+
+    async def _generate_phone_verification_code(self, phone: str) -> str:
+        """Generate/send phone verification code depending on app settings."""
+        if settings.debug and settings.mock_phone_verification_code:
+            return "123456"
+
+        async with self.code_manager() as sms_manager:
+            return await sms_manager.send_verification_code(phone)
     
     @handle_alchemy_error
     async def register_user(self, session: AsyncSession, user_data: schemas.UserRegistration) -> schemas.TokenResponse:
@@ -108,9 +115,7 @@ class AuthManager:
         # If registration by phone, send verification code immediately
         if phone:
             try:
-                # async with create_exolve_sms_manager() as sms_manager:
-                async with self.code_manager() as sms_manager:
-                    code = await sms_manager.send_verification_code(phone)
+                code = await self._generate_phone_verification_code(phone)
                 
                 # Store code in Redis
                 await store_verification_code(phone, code, expire_seconds=300)
@@ -227,8 +232,7 @@ class AuthManager:
         formatted_phone = user.phone
         
         # Generate and send code
-        async with self.code_manager() as sms_manager:
-            code = await sms_manager.send_verification_code(formatted_phone)
+        code = await self._generate_phone_verification_code(formatted_phone)
         
         # Store code in Redis
         await store_verification_code(formatted_phone, code, expire_seconds=300)
