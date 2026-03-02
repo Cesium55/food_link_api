@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from app.auth.models import User
     from app.offers.models import Offer
     from app.payments.models import UserPayment
+    from app.payments.models import UserRefund
     from app.sellers.models import Seller
 
 
@@ -118,6 +119,9 @@ class PurchaseOfferResult(Base):
     purchase_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("purchases.id"), nullable=False, index=True
     )
+    refund_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("user_refunds.id"), nullable=True, index=True
+    )
     offer_id: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False)
     requested_quantity: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -127,7 +131,7 @@ class PurchaseOfferResult(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('success', 'not_found', 'insufficient_quantity', 'expired')",
+            "status IN ('success', 'not_found', 'insufficient_quantity', 'expired', 'refunded')",
             name="ck_purchase_offer_result_status_valid"
         ),
         CheckConstraint(
@@ -145,4 +149,4 @@ class PurchaseOfferResult(Base):
     )
 
     purchase: Mapped["Purchase"] = relationship("Purchase", back_populates="offer_results")
-
+    refund: Mapped[Optional["UserRefund"]] = relationship("UserRefund", back_populates="offer_results")

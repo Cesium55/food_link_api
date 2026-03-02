@@ -1,17 +1,25 @@
 from fastapi import APIRouter, Request, HTTPException
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import json
 import asyncio
+from decimal import Decimal
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import select, update
 from app.debug.init import initialize_categories_from_json_file
 from app.debug.recalculate_purchase_statuses import recalculate_purchase_statuses
 from app.purchases.tasks import cancel_all_expired_purchases
 from app.auth.service import AuthService
 from app.offers.init_pricing_strategies import init_pricing_strategies
+from app.payments.manager import PaymentsManager
+from app.purchases.models import PurchaseOfferResult
+from app.purchases.models import PurchaseOffer
+from app.offers.models import Offer
+from app.shop_points.models import ShopPoint
 from config import settings
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 auth_service = AuthService()
+payments_manager = PaymentsManager()
 
 
 class SendSMSRequest(BaseModel):
@@ -40,6 +48,12 @@ class SendFirebaseNotificationRequest(BaseModel):
         if not self.user_id and not self.token:
             raise ValueError("Either user_id or token must be provided")
         return self
+
+
+class CreateRefundByOfferResultsRequest(BaseModel):
+    """Create refund for selected PurchaseOfferResult IDs"""
+    purchase_offer_result_ids: List[int] = Field(..., min_length=1, description="List of PurchaseOfferResult IDs")
+    reason: Optional[str] = Field(default=None, description="Refund reason")
 
 
 @router.post("/init-categories-from-file")
@@ -581,6 +595,139 @@ async def send_firebase_notification(request: Request) -> Dict[str, Any]:
             status_code=500,
             detail=error_details
         )
+
+
+@router.post("/refund-by-offer-results")
+async def refund_by_offer_results(
+    request: Request,
+    request_body: CreateRefundByOfferResultsRequest
+) -> Dict[str, Any]:
+    """
+    Create a single refund for selected PurchaseOfferResult IDs.
+
+    Validation rules:
+    - all IDs must exist
+    - all results must belong to one purchase
+    - all results must belong to one seller
+    """
+    raw_ids = request_body.purchase_offer_result_ids
+    unique_ids = list(dict.fromkeys(raw_ids))
+    if len(unique_ids) != len(raw_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="purchase_offer_result_ids must not contain duplicates"
+        )
+
+    query = (
+        select(PurchaseOfferResult, ShopPoint.seller_id)
+        .join(Offer, Offer.id == PurchaseOfferResult.offer_id)
+        .join(ShopPoint, ShopPoint.id == Offer.shop_id)
+        .where(PurchaseOfferResult.id.in_(unique_ids))
+        .with_for_update()
+    )
+    result = await request.state.session.execute(query)
+    rows = result.all()
+
+    found_ids = {row[0].id for row in rows}
+    missing_ids = sorted(set(unique_ids) - found_ids)
+    if missing_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"PurchaseOfferResult not found for ids: {missing_ids}"
+        )
+
+    purchase_ids = {row[0].purchase_id for row in rows}
+    if len(purchase_ids) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="All PurchaseOfferResult entries must belong to one purchase"
+        )
+
+    seller_ids = {row[1] for row in rows}
+    if len(seller_ids) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="All PurchaseOfferResult entries must belong to one seller"
+        )
+
+    already_refunded = [row[0].id for row in rows if row[0].status == "refunded" or row[0].refund_id is not None]
+    if already_refunded:
+        raise HTTPException(
+            status_code=400,
+            detail=f"PurchaseOfferResult already refunded: {already_refunded}"
+        )
+
+    purchase_id = next(iter(purchase_ids))
+    seller_id = next(iter(seller_ids))
+    offer_ids = {row[0].offer_id for row in rows}
+
+    purchase_offers_result = await request.state.session.execute(
+        select(PurchaseOffer).where(
+            PurchaseOffer.purchase_id == purchase_id,
+            PurchaseOffer.offer_id.in_(offer_ids),
+        )
+    )
+    purchase_offers = list(purchase_offers_result.scalars().all())
+    purchase_offers_map = {po.offer_id: po for po in purchase_offers}
+
+    total_amount = Decimal("0.00")
+    for purchase_offer_result, _ in rows:
+        purchase_offer = purchase_offers_map.get(purchase_offer_result.offer_id)
+        if purchase_offer is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"PurchaseOffer not found for offer_id={purchase_offer_result.offer_id} in purchase_id={purchase_id}"
+            )
+        if purchase_offer.cost_at_purchase is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing cost_at_purchase for offer_id={purchase_offer_result.offer_id}"
+            )
+
+        quantity = purchase_offer_result.processed_quantity or purchase_offer_result.requested_quantity
+        total_amount += purchase_offer.cost_at_purchase * quantity
+
+    if total_amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Computed refund amount must be positive, got {total_amount}"
+        )
+
+    payment = await payments_manager.get_payment_by_purchase_id(request.state.session, purchase_id)
+    user_refund = await payments_manager.create_user_refund(
+        session=request.state.session,
+        payment_id=payment.id,
+        amount=total_amount,
+        reason=request_body.reason,
+        auto_commit=False,
+    )
+
+    await request.state.session.execute(
+        update(PurchaseOfferResult)
+        .where(PurchaseOfferResult.id.in_(unique_ids))
+        .values(
+            status="refunded",
+            refund_id=user_refund.id,
+            message=f"Refunded via debug endpoint (refund_id={user_refund.id})",
+        )
+    )
+    await request.state.session.commit()
+
+    return {
+        "success": True,
+        "message": "Refund created successfully",
+        "refund": {
+            "id": user_refund.id,
+            "payment_id": user_refund.payment_id,
+            "amount": str(user_refund.amount),
+            "currency": user_refund.currency,
+            "reason": user_refund.reason,
+            "yookassa_refund_id": user_refund.yookassa_refund_id,
+        },
+        "purchase_id": purchase_id,
+        "seller_id": seller_id,
+        "purchase_offer_result_ids": unique_ids,
+    }
 
 
 @router.delete("/user/{user_id}")

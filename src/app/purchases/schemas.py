@@ -16,6 +16,7 @@ class OfferProcessingStatus(str, Enum):
     INSUFFICIENT_QUANTITY = "insufficient_quantity"
     EXPIRED = "expired"
     ERROR = "error"
+    REFUNDED = "refunded"
 
 
 class PurchaseOfferCreate(BaseModel):
@@ -153,4 +154,3 @@ def _rebuild_models():
         pass
 
 _rebuild_models()
-

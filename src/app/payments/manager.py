@@ -872,7 +872,14 @@ class PaymentsManager:
         
 
     @handle_alchemy_error
-    async def create_user_refund(self, session, payment_id: int, amount: Decimal, reason: Optional[str] = None):
+    async def create_user_refund(
+        self,
+        session,
+        payment_id: int,
+        amount: Decimal,
+        reason: Optional[str] = None,
+        auto_commit: bool = True,
+    ):
         """Create a refund for a payment"""
         # Lock payment to avoid race conditions
         payment = await self.service.get_payment_by_id_for_update(session, payment_id)
@@ -922,7 +929,11 @@ class PaymentsManager:
                 .values(yookassa_refund_id=y_refund_id)
             )
 
-        await session.commit()
+        if auto_commit:
+            await session.commit()
+        else:
+            await session.flush()
+
         # Return updated refund record
         result = await session.execute(select(UserRefund).where(UserRefund.id == user_refund.id))
         return result.scalar_one()
@@ -942,6 +953,5 @@ class PaymentsManager:
 
         
         
-
 
 
