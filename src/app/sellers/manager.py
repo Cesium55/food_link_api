@@ -513,3 +513,26 @@ class SellersManager:
 
         await self.service.delete_registration_request(session, current_user.id)
         await session.commit()
+
+    async def get_my_system_balance(
+        self,
+        session: AsyncSession,
+        seller: Seller,
+    ) -> schemas.SellerSystemBalanceResponse:
+        """Get system-held balance for current seller"""
+        from app.payments.manager import PaymentsManager
+
+        payments_manager = PaymentsManager()
+        balances = await payments_manager.calculate_seller_system_balance_breakdown(
+            session,
+            seller.id,
+        )
+        return schemas.SellerSystemBalanceResponse(
+            seller_id=seller.id,
+            system_balance=str(balances["system_balance"]),
+            issued_goods_balance=str(balances["issued_goods_balance"]),
+            issued_goods_older_than_week_balance=str(
+                balances["issued_goods_older_than_week_balance"]
+            ),
+            currency="RUB",
+        )

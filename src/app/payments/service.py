@@ -1,11 +1,11 @@
 from decimal import Decimal
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert, update, delete
+from sqlalchemy import select, insert, update, delete, and_
 
 from app.payments import schemas
 from app.payments.models import UserPayment, PaymentStatus, UserRefund
-from app.purchases.models import PurchaseOfferResult, PurchaseOffer
+from app.purchases.models import PurchaseOfferResult, PurchaseOffer, MoneyFlowStatus
 from app.offers.models import Offer
 from app.shop_points.models import ShopPoint
 
@@ -196,6 +196,7 @@ class PaymentsService:
         refund_id: int,
         refunded_quantity: int,
         status: str,
+        money_flow_status: str,
         message: str,
     ) -> None:
         """Update purchase offer result refund progress"""
@@ -206,6 +207,53 @@ class PaymentsService:
                 status=status,
                 refund_id=refund_id,
                 refunded_quantity=refunded_quantity,
+                money_flow_status=money_flow_status,
                 message=message,
             )
         )
+
+    async def mark_offer_results_in_system_by_purchase(
+        self,
+        session: AsyncSession,
+        purchase_id: int,
+    ) -> None:
+        """Move purchase offer result money flow to in_system after successful payment"""
+        await session.execute(
+            update(PurchaseOfferResult)
+            .where(
+                and_(
+                    PurchaseOfferResult.purchase_id == purchase_id,
+                    PurchaseOfferResult.status == "success",
+                )
+            )
+            .values(money_flow_status=MoneyFlowStatus.IN_SYSTEM.value)
+        )
+
+    async def get_seller_offer_results_for_system_balance(
+        self,
+        session: AsyncSession,
+        seller_id: int,
+    ):
+        """Get rows required for calculating seller system balance"""
+        result = await session.execute(
+            select(
+                PurchaseOfferResult,
+                PurchaseOffer.cost_at_purchase,
+                PurchaseOffer.fulfilled_quantity,
+                PurchaseOffer.fulfillment_status,
+                PurchaseOffer.fulfilled_at,
+                UserPayment.status,
+            )
+            .join(Offer, Offer.id == PurchaseOfferResult.offer_id)
+            .join(ShopPoint, ShopPoint.id == Offer.shop_id)
+            .join(
+                PurchaseOffer,
+                and_(
+                    PurchaseOffer.purchase_id == PurchaseOfferResult.purchase_id,
+                    PurchaseOffer.offer_id == PurchaseOfferResult.offer_id,
+                ),
+            )
+            .join(UserPayment, UserPayment.purchase_id == PurchaseOfferResult.purchase_id)
+            .where(ShopPoint.seller_id == seller_id)
+        )
+        return result.all()

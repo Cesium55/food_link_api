@@ -39,6 +39,7 @@ class PurchaseOffer(PurchaseOfferBase):
     offer: Optional["Offer"] = Field(None, description="Offer information")
     fulfillment_status: Optional[str] = Field(None, description="Fulfillment status: 'fulfilled', 'not_fulfilled', or None if not processed")
     fulfilled_quantity: Optional[int] = Field(None, ge=0, description="Quantity fulfilled")
+    fulfilled_at: Optional[datetime] = Field(None, description="Fulfillment datetime")
     fulfilled_by_seller_id: Optional[int] = Field(None, description="ID of seller who fulfilled the offer")
     unfulfilled_reason: Optional[str] = Field(None, description="Reason for not fulfilling (NotImplemented stub)")
 
@@ -127,6 +128,7 @@ class PurchaseOfferForFulfillment(BaseModel):
     quantity: int = Field(..., gt=0, description="Requested quantity")
     fulfilled_quantity: Optional[int] = Field(None, ge=0, description="Already fulfilled quantity (if any)")
     fulfillment_status: Optional[str] = Field(None, description="Current fulfillment status")
+    fulfilled_at: Optional[datetime] = Field(None, description="Fulfillment datetime")
     product_name: str = Field(..., description="Product name")
     shop_point_id: int = Field(..., description="Shop point ID")
     cost_at_purchase: Optional[Decimal] = Field(None, ge=0, description="Cost at purchase time")

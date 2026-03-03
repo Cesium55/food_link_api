@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, update, delete, and_, func
@@ -353,6 +353,28 @@ class PurchasesService:
         )
         return list(result.scalars().all())
 
+    async def get_purchase_offer_results_by_purchase_and_offer_ids_for_update(
+        self,
+        session: AsyncSession,
+        purchase_id: int,
+        offer_ids: List[int],
+    ) -> List[PurchaseOfferResult]:
+        """Get purchase offer results by purchase and offer IDs with FOR UPDATE lock"""
+        if not offer_ids:
+            return []
+
+        result = await session.execute(
+            select(PurchaseOfferResult)
+            .where(
+                and_(
+                    PurchaseOfferResult.purchase_id == purchase_id,
+                    PurchaseOfferResult.offer_id.in_(offer_ids),
+                )
+            )
+            .with_for_update()
+        )
+        return list(result.scalars().all())
+
     async def update_purchase_offer_fulfillment(
         self,
         session: AsyncSession,
@@ -364,6 +386,10 @@ class PurchasesService:
         unfulfilled_reason: Optional[str] = None
     ) -> PurchaseOffer:
         """Update fulfillment fields in PurchaseOffer"""
+        fulfilled_at = None
+        if fulfillment_status == "fulfilled":
+            fulfilled_at = datetime.now(timezone.utc)
+
         result = await session.execute(
             update(PurchaseOffer)
             .where(
@@ -375,6 +401,7 @@ class PurchasesService:
             .values(
                 fulfillment_status=fulfillment_status,
                 fulfilled_quantity=fulfilled_quantity,
+                fulfilled_at=fulfilled_at,
                 fulfilled_by_seller_id=fulfilled_by_seller_id,
                 unfulfilled_reason=unfulfilled_reason
             )

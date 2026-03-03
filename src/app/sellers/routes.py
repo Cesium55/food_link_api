@@ -35,6 +35,18 @@ async def get_my_seller(
     return await sellers_manager.get_seller_by_email(request.state.session, current_user.email)
 
 
+@router.get("/me/system-balance", response_model=schemas.SellerSystemBalanceResponse)
+async def get_my_system_balance(
+    request: Request,
+    current_seller: Seller = Depends(get_current_seller),
+) -> schemas.SellerSystemBalanceResponse:
+    """Get current seller system-held balance"""
+    return await sellers_manager.get_my_system_balance(
+        request.state.session,
+        current_seller,
+    )
+
+
 @router.get("", response_model=PaginatedResponse[schemas.PublicSeller])
 async def get_sellers(
     request: Request,

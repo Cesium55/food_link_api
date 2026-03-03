@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, func, select
@@ -10,7 +10,7 @@ from app.payments import schemas
 from app.payments.service import PaymentsService
 from app.payments.models import UserPayment, PaymentStatus, UserRefund
 from app.purchases.service import PurchasesService
-from app.purchases.models import PurchaseStatus
+from app.purchases.models import PurchaseStatus, MoneyFlowStatus
 from app.offers.service import OffersService
 from app.offers.models import Offer
 from app.shop_points.models import ShopPoint
@@ -509,6 +509,10 @@ class PaymentsManager:
         updated_payment = await self._update_payment_to_succeeded(session, payment_id)
         await self._confirm_purchase(session, payment.purchase_id)
         await self._decrease_offer_counts(session, payment.purchase_id)
+        await self.service.mark_offer_results_in_system_by_purchase(
+            session,
+            payment.purchase_id,
+        )
 
         await session.commit()
         
@@ -1015,6 +1019,11 @@ class PaymentsManager:
                 refund_id=user_refund.id,
                 refunded_quantity=item.total_refunded_quantity,
                 status=status_value,
+                money_flow_status=(
+                    MoneyFlowStatus.AT_USER.value
+                    if item.refundable_quantity_left == 0
+                    else MoneyFlowStatus.IN_SYSTEM.value
+                ),
                 message=message,
             )
 
@@ -1105,6 +1114,90 @@ class PaymentsManager:
         current_refunds = await self.service.get_payment_refunds(session, payment_id)
         total_refunded = sum(refund.amount for refund in current_refunds)
         return payment.amount - total_refunded
+
+    @handle_alchemy_error
+    async def calculate_seller_system_balance(
+        self,
+        session: AsyncSession,
+        seller_id: int,
+    ) -> Decimal:
+        """
+        Calculate seller balance held in the system.
+        Money in system means: paid by user, not paid out to seller yet.
+        """
+        balances = await self.calculate_seller_system_balance_breakdown(
+            session,
+            seller_id,
+        )
+        return balances["system_balance"]
+
+    @handle_alchemy_error
+    async def calculate_seller_system_balance_breakdown(
+        self,
+        session: AsyncSession,
+        seller_id: int,
+    ) -> Dict[str, Decimal]:
+        """Calculate seller balances held in system with fulfillment slices"""
+        rows = await self.service.get_seller_offer_results_for_system_balance(
+            session,
+            seller_id,
+        )
+        system_balance = Decimal("0.00")
+        issued_goods_balance = Decimal("0.00")
+        issued_goods_older_than_week_balance = Decimal("0.00")
+        one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+
+        for (
+            offer_result,
+            cost_at_purchase,
+            fulfilled_quantity,
+            fulfillment_status,
+            fulfilled_at,
+            payment_status,
+        ) in rows:
+            if payment_status != PaymentStatus.SUCCEEDED.value:
+                continue
+            if offer_result.money_flow_status != MoneyFlowStatus.IN_SYSTEM.value:
+                continue
+            if cost_at_purchase is None:
+                continue
+
+            total_quantity = (
+                offer_result.processed_quantity
+                or offer_result.requested_quantity
+            )
+            in_system_quantity = total_quantity - offer_result.refunded_quantity
+            if in_system_quantity <= 0:
+                continue
+
+            system_balance += cost_at_purchase * in_system_quantity
+
+            if fulfillment_status != "fulfilled":
+                continue
+
+            fulfilled_qty_value = fulfilled_quantity or 0
+            fulfilled_in_system_quantity = min(
+                fulfilled_qty_value,
+                total_quantity,
+            ) - offer_result.refunded_quantity
+            if fulfilled_in_system_quantity <= 0:
+                continue
+
+            issued_goods_amount = cost_at_purchase * fulfilled_in_system_quantity
+            issued_goods_balance += issued_goods_amount
+
+            if fulfilled_at is not None:
+                fulfilled_at_value = fulfilled_at
+                if fulfilled_at_value.tzinfo is None:
+                    fulfilled_at_value = fulfilled_at_value.replace(tzinfo=timezone.utc)
+                if fulfilled_at_value <= one_week_ago:
+                    issued_goods_older_than_week_balance += issued_goods_amount
+
+        return {
+            "system_balance": system_balance,
+            "issued_goods_balance": issued_goods_balance,
+            "issued_goods_older_than_week_balance": issued_goods_older_than_week_balance,
+        }
         
 
         

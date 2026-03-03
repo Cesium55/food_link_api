@@ -243,6 +243,22 @@ class SellerSummary(BaseModel):
     )
 
 
+class SellerSystemBalanceResponse(BaseModel):
+    """Seller balance currently held in system"""
+
+    seller_id: int = Field(..., description="Seller ID")
+    system_balance: str = Field(..., description="Money held in system for seller")
+    issued_goods_balance: str = Field(
+        ...,
+        description="System-held balance for issued goods",
+    )
+    issued_goods_older_than_week_balance: str = Field(
+        ...,
+        description="System-held balance for issued goods fulfilled more than a week ago",
+    )
+    currency: str = Field(..., description="Currency code")
+
+
 # Update forward references
 def _rebuild_models():
     try:

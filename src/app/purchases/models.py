@@ -24,6 +24,13 @@ class PurchaseStatus(PyEnum):
     COMPLETED = "completed"  # Заказ выполнен
 
 
+class MoneyFlowStatus(PyEnum):
+    """Money flow status for purchase offer result"""
+    AT_USER = "at_user"        # User has not paid yet / funds returned to user
+    IN_SYSTEM = "in_system"    # User paid, funds are held by the system
+    AT_SELLER = "at_seller"    # Funds were paid out to seller
+
+
 class Purchase(Base):
     """Purchase model - represents a purchase order"""
 
@@ -84,6 +91,9 @@ class PurchaseOffer(Base):
     # Fulfillment fields
     fulfillment_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     fulfilled_quantity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    fulfilled_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
     fulfilled_by_seller_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("sellers.id"), nullable=True, index=True
     )
@@ -128,6 +138,9 @@ class PurchaseOfferResult(Base):
     processed_quantity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     available_quantity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     refunded_quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    money_flow_status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default=MoneyFlowStatus.AT_USER.value
+    )
     message: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     __table_args__ = (
@@ -154,6 +167,10 @@ class PurchaseOfferResult(Base):
         CheckConstraint(
             "refunded_quantity <= COALESCE(processed_quantity, requested_quantity)",
             name="ck_purchase_offer_result_refunded_quantity_not_exceed_total"
+        ),
+        CheckConstraint(
+            "money_flow_status IN ('at_user', 'in_system', 'at_seller')",
+            name="ck_purchase_offer_result_money_flow_status_valid"
         ),
     )
 

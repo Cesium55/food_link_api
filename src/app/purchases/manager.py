@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from datetime import datetime, timezone, timedelta
 from app.purchases import schemas
 from app.purchases.service import PurchasesService
-from app.purchases.models import PurchaseStatus, Purchase, PurchaseOffer
+from app.purchases.models import PurchaseStatus, Purchase, PurchaseOffer, PurchaseOfferResult
 from app.offers.service import OffersService
 from app.offers.manager import OffersManager
 from app.offers import schemas as offers_schemas
@@ -16,14 +16,13 @@ from app.shop_points.models import ShopPoint
 from app.sellers.manager import SellersManager
 from app.sellers.service import SellersService
 from app.sellers.models import Seller
-from app.shop_points.models import ShopPoint
-from app.offers.models import Offer
 from sqlalchemy.orm import selectinload
 from app.payments.manager import PaymentsManager
 from utils.errors_handler import handle_alchemy_error
 from app.purchases.tasks import check_purchase_expiration
 from config import settings
 from app.auth.jwt_utils import JWTUtils
+from app.payments import schemas as payment_schemas
 from app.payments.models import PaymentStatus
 from utils.pagination import PaginatedResponse
 from logger import get_sync_logger
@@ -684,7 +683,6 @@ class PurchasesManager:
             shop_point_ids = list(set([offer.shop_id for offer in offers]))
             
             # Get shop points with sellers
-            from sqlalchemy import select
             shop_points_result = await session.execute(
                 select(ShopPoint).where(ShopPoint.id.in_(shop_point_ids))
             )
@@ -748,8 +746,6 @@ class PurchasesManager:
         offer_results: List = None
     ) -> schemas.PurchaseWithOffers:
         """Convert Purchase model to PurchaseWithOffers schema"""
-        from app.purchases.models import PurchaseOfferResult
-        
         purchase_schema = schemas.Purchase.model_validate(purchase)
         
         purchase_offers_schemas = []
@@ -934,6 +930,7 @@ class PurchasesManager:
                     quantity=po.quantity,
                     fulfilled_quantity=po.fulfilled_quantity,
                     fulfillment_status=po.fulfillment_status,
+                    fulfilled_at=po.fulfilled_at,
                     product_name=po.offer.product.name,
                     shop_point_id=po.offer.shop_id,
                     cost_at_purchase=po.cost_at_purchase
@@ -997,8 +994,6 @@ class PurchasesManager:
             )
         
         # Get seller's shop point IDs
-        from app.shop_points.models import ShopPoint
-        from sqlalchemy import select
         shop_points_result = await session.execute(
             select(ShopPoint.id)
             .where(ShopPoint.seller_id == seller_id)
@@ -1012,7 +1007,6 @@ class PurchasesManager:
             )
         
         # Get offers for these shop points
-        from app.offers.models import Offer
         offers_result = await session.execute(
             select(Offer.id)
             .where(Offer.shop_id.in_(shop_point_ids))
@@ -1025,8 +1019,17 @@ class PurchasesManager:
                 detail="Seller has no offers"
             )
         
+        request_offer_ids = [item.offer_id for item in fulfillment_data.items]
+        offer_results = await self.service.get_purchase_offer_results_by_purchase_and_offer_ids_for_update(
+            session,
+            purchase_id,
+            request_offer_ids,
+        )
+        offer_results_map = {offer_result.offer_id: offer_result for offer_result in offer_results}
+
         # Validate and update each item
         fulfilled_items = []
+        refund_items: List[payment_schemas.RefundByOfferResultsRequest.Item] = []
         
         for item in fulfillment_data.items:
             # Get purchase offer
@@ -1060,6 +1063,34 @@ class PurchasesManager:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Fulfilled quantity {item.fulfilled_quantity} exceeds requested quantity {po.quantity} for offer {item.offer_id}"
                 )
+
+            offer_result = offer_results_map.get(item.offer_id)
+            if not offer_result:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"PurchaseOfferResult for offer {item.offer_id} not found in purchase {purchase_id}"
+                )
+
+            max_fulfillable_after_refunds = po.quantity - offer_result.refunded_quantity
+            if item.fulfilled_quantity > max_fulfillable_after_refunds:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Fulfilled quantity {item.fulfilled_quantity} exceeds remaining "
+                        f"fulfillable quantity {max_fulfillable_after_refunds} after refunds "
+                        f"for offer {item.offer_id}"
+                    ),
+                )
+
+            target_refunded_quantity = max(0, po.quantity - item.fulfilled_quantity)
+            additional_refund_quantity = target_refunded_quantity - offer_result.refunded_quantity
+            if additional_refund_quantity > 0:
+                refund_items.append(
+                    payment_schemas.RefundByOfferResultsRequest.Item(
+                        purchase_offer_result_id=offer_result.id,
+                        quantity=additional_refund_quantity,
+                    )
+                )
             
             # Update fulfillment
             updated_po = await self.service.update_purchase_offer_fulfillment(
@@ -1079,6 +1110,19 @@ class PurchasesManager:
                 fulfilled_quantity=item.fulfilled_quantity,
                 unfulfilled_reason=item.unfulfilled_reason
             ))
+
+        if refund_items:
+            await self.payments_manager.create_refund_by_offer_results(
+                session=session,
+                request_data=payment_schemas.RefundByOfferResultsRequest(
+                    items=refund_items,
+                    reason=(
+                        f"Auto refund due to partial fulfillment in purchase {purchase_id} "
+                        f"by seller {seller_id}"
+                    ),
+                ),
+                seller_id=seller_id,
+            )
         
         # Check if all offers are fulfilled
         all_fulfilled = await self.service.check_all_offers_fulfilled(session, purchase_id)
