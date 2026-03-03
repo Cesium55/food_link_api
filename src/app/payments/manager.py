@@ -869,7 +869,163 @@ class PaymentsManager:
             return datetime.fromisoformat(value)
         except (ValueError, AttributeError):
             return None
-        
+    
+    @handle_alchemy_error
+    async def create_refund_by_offer_results(
+        self,
+        session: AsyncSession,
+        request_data: schemas.RefundByOfferResultsRequest,
+        seller_id: int,
+    ) -> schemas.RefundByOfferResultsResponse:
+        """Create a refund for selected purchase offer results of one seller"""
+        raw_ids = [item.purchase_offer_result_id for item in request_data.items]
+        requested_quantities = {
+            item.purchase_offer_result_id: item.quantity for item in request_data.items
+        }
+        unique_ids = list(dict.fromkeys(raw_ids))
+        if len(unique_ids) != len(raw_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="items must not contain duplicate purchase_offer_result_id",
+            )
+
+        rows = await self.service.get_offer_results_with_seller_by_ids_for_update(
+            session,
+            unique_ids,
+        )
+        found_ids = {row[0].id for row in rows}
+        missing_ids = sorted(set(unique_ids) - found_ids)
+        if missing_ids:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"PurchaseOfferResult not found for ids: {missing_ids}",
+            )
+
+        purchase_ids = {row[0].purchase_id for row in rows}
+        if len(purchase_ids) != 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="All PurchaseOfferResult entries must belong to one purchase",
+            )
+
+        seller_ids = {row[1] for row in rows}
+        if len(seller_ids) != 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="All PurchaseOfferResult entries must belong to one seller",
+            )
+
+        results_seller_id = next(iter(seller_ids))
+        if results_seller_id != seller_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to refund these offer results",
+            )
+
+        purchase_id = next(iter(purchase_ids))
+        offer_ids = [row[0].offer_id for row in rows]
+        purchase_offers = await self.service.get_purchase_offers_by_purchase_and_offer_ids(
+            session,
+            purchase_id,
+            offer_ids,
+        )
+        purchase_offers_map = {po.offer_id: po for po in purchase_offers}
+
+        total_amount = Decimal("0.00")
+        item_updates: List[schemas.RefundByOfferResultsResponse.Item] = []
+        for purchase_offer_result, _ in rows:
+            purchase_offer = purchase_offers_map.get(purchase_offer_result.offer_id)
+            if purchase_offer is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"PurchaseOffer not found for offer_id={purchase_offer_result.offer_id} in purchase_id={purchase_id}",
+                )
+            if purchase_offer.cost_at_purchase is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Missing cost_at_purchase for offer_id={purchase_offer_result.offer_id}",
+                )
+
+            max_refundable_quantity = (
+                purchase_offer_result.processed_quantity
+                or purchase_offer_result.requested_quantity
+            )
+            already_refunded_quantity = purchase_offer_result.refunded_quantity
+            refundable_quantity_left = max_refundable_quantity - already_refunded_quantity
+            if refundable_quantity_left <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"PurchaseOfferResult {purchase_offer_result.id} has no refundable quantity left",
+                )
+
+            requested_quantity = requested_quantities[purchase_offer_result.id]
+            if requested_quantity > refundable_quantity_left:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Requested refund quantity {requested_quantity} exceeds "
+                        f"available {refundable_quantity_left} for PurchaseOfferResult {purchase_offer_result.id}"
+                    ),
+                )
+
+            total_refunded_quantity = already_refunded_quantity + requested_quantity
+            remaining_after_refund = max_refundable_quantity - total_refunded_quantity
+            total_amount += purchase_offer.cost_at_purchase * requested_quantity
+            item_updates.append(
+                schemas.RefundByOfferResultsResponse.Item(
+                    purchase_offer_result_id=purchase_offer_result.id,
+                    refunded_quantity=requested_quantity,
+                    total_refunded_quantity=total_refunded_quantity,
+                    refundable_quantity_left=remaining_after_refund,
+                )
+            )
+
+        if total_amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Computed refund amount must be positive, got {total_amount}",
+            )
+
+        payment = await self.service.get_payment_by_purchase_id(session, purchase_id)
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Payment for purchase {purchase_id} not found",
+            )
+
+        user_refund = await self.create_user_refund(
+            session=session,
+            payment_id=payment.id,
+            amount=total_amount,
+            reason=request_data.reason,
+            auto_commit=False,
+        )
+
+        for item in item_updates:
+            status_value = (
+                "refunded" if item.refundable_quantity_left == 0 else "success"
+            )
+            message = (
+                f"Partial refund via payments endpoint (refund_id={user_refund.id}, "
+                f"refunded={item.refunded_quantity}, left={item.refundable_quantity_left})"
+            )
+            await self.service.update_offer_result_refund_progress(
+                session=session,
+                offer_result_id=item.purchase_offer_result_id,
+                refund_id=user_refund.id,
+                refunded_quantity=item.total_refunded_quantity,
+                status=status_value,
+                message=message,
+            )
+
+        await session.commit()
+
+        return schemas.RefundByOfferResultsResponse(
+            refund=schemas.Refund.model_validate(user_refund),
+            purchase_id=purchase_id,
+            seller_id=results_seller_id,
+            items=item_updates,
+        )
 
     @handle_alchemy_error
     async def create_user_refund(
@@ -953,5 +1109,3 @@ class PaymentsManager:
 
         
         
-
-

@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, Any, TYPE_CHECKING, List
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -103,6 +103,49 @@ class PaymentWebhook(BaseModel):
     object: Dict[str, Any] = Field(..., description="Payment object from YooKassa")
 
 
+class RefundByOfferResultsRequest(BaseModel):
+    """Request schema for creating refund by purchase offer result IDs"""
+    class Item(BaseModel):
+        """Refund item for one purchase offer result"""
+        purchase_offer_result_id: int = Field(..., description="PurchaseOfferResult ID")
+        quantity: int = Field(..., gt=0, description="Quantity to refund")
+
+    items: List[Item] = Field(..., min_length=1, description="Refund items")
+    reason: Optional[str] = Field(None, description="Refund reason")
+
+
+class Refund(BaseModel):
+    """Schema for displaying refund"""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int = Field(..., description="Refund ID")
+    payment_id: int = Field(..., description="Payment ID")
+    amount: Decimal = Field(..., description="Refund amount")
+    currency: str = Field(..., description="Refund currency")
+    reason: Optional[str] = Field(None, description="Refund reason")
+    yookassa_refund_id: Optional[str] = Field(None, description="YooKassa refund ID")
+    created_at: datetime = Field(..., description="Creation date")
+    updated_at: datetime = Field(..., description="Last update date")
+
+
+class RefundByOfferResultsResponse(BaseModel):
+    """Response schema for refund by purchase offer results"""
+    class Item(BaseModel):
+        """Refunded quantity summary for one purchase offer result"""
+        purchase_offer_result_id: int = Field(..., description="PurchaseOfferResult ID")
+        refunded_quantity: int = Field(..., description="Quantity refunded by this request")
+        total_refunded_quantity: int = Field(..., description="Total refunded quantity after this request")
+        refundable_quantity_left: int = Field(..., description="Remaining refundable quantity")
+
+    refund: Refund = Field(..., description="Created refund")
+    purchase_id: int = Field(..., description="Purchase ID")
+    seller_id: int = Field(..., description="Seller ID")
+    items: List[Item] = Field(
+        ...,
+        description="Per-item refund details",
+    )
+
+
 # Update forward references
 def _rebuild_models():
     try:
@@ -112,8 +155,6 @@ def _rebuild_models():
         pass
 
 _rebuild_models()
-
-
 
 
 

@@ -6,7 +6,9 @@ from logger import get_sync_logger
 from app.payments import schemas
 from app.payments.manager import PaymentsManager
 from utils.auth_dependencies import get_current_user
+from utils.seller_dependencies import get_current_seller
 from app.auth.models import User
+from app.sellers.models import Seller
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -146,4 +148,21 @@ async def cancel_payment(
     """Cancel payment in YooKassa and update local database"""
     return await payments_manager.cancel_payment_for_user(
         request.state.session, payment_id, current_user.id
+    )
+
+
+@router.post(
+    "/refunds/by-offer-results",
+    response_model=schemas.RefundByOfferResultsResponse,
+)
+async def create_refund_by_offer_results(
+    request: Request,
+    request_data: schemas.RefundByOfferResultsRequest,
+    current_seller: Seller = Depends(get_current_seller),
+) -> schemas.RefundByOfferResultsResponse:
+    """Create refund by purchase offer result IDs for current seller"""
+    return await payments_manager.create_refund_by_offer_results(
+        request.state.session,
+        request_data,
+        current_seller.id,
     )

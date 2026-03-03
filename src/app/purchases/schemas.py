@@ -66,6 +66,7 @@ class Purchase(PurchaseBase):
 
 class OfferProcessingResult(BaseModel):
     """Result of processing a single offer during purchase creation"""
+    id: Optional[int] = Field(None, description="PurchaseOfferResult ID")
     offer_id: int = Field(..., description="Offer ID that was processed")
     status: OfferProcessingStatus = Field(..., description="Processing status")
     requested_quantity: int = Field(..., description="Requested quantity")

@@ -768,6 +768,7 @@ class PurchasesManager:
             for result in offer_results:
                 if isinstance(result, PurchaseOfferResult):
                     offer_results_schemas.append(schemas.OfferProcessingResult(
+                        id=result.id,
                         offer_id=result.offer_id,
                         status=schemas.OfferProcessingStatus(result.status),
                         requested_quantity=result.requested_quantity,

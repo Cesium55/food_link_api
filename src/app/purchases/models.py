@@ -127,6 +127,7 @@ class PurchaseOfferResult(Base):
     requested_quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     processed_quantity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     available_quantity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    refunded_quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     message: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     __table_args__ = (
@@ -145,6 +146,14 @@ class PurchaseOfferResult(Base):
         CheckConstraint(
             "available_quantity IS NULL OR available_quantity >= 0",
             name="ck_purchase_offer_result_available_quantity_non_negative"
+        ),
+        CheckConstraint(
+            "refunded_quantity >= 0",
+            name="ck_purchase_offer_result_refunded_quantity_non_negative"
+        ),
+        CheckConstraint(
+            "refunded_quantity <= COALESCE(processed_quantity, requested_quantity)",
+            name="ck_purchase_offer_result_refunded_quantity_not_exceed_total"
         ),
     )
 

@@ -5,6 +5,9 @@ from sqlalchemy import select, insert, update, delete
 
 from app.payments import schemas
 from app.payments.models import UserPayment, PaymentStatus, UserRefund
+from app.purchases.models import PurchaseOfferResult, PurchaseOffer
+from app.offers.models import Offer
+from app.shop_points.models import ShopPoint
 
 
 class PaymentsService:
@@ -155,3 +158,54 @@ class PaymentsService:
             .returning(UserRefund)
         )
         return result.scalar_one()
+
+    async def get_offer_results_with_seller_by_ids_for_update(
+        self,
+        session: AsyncSession,
+        offer_result_ids: List[int],
+    ):
+        """Get purchase offer results with seller IDs by result IDs with row lock"""
+        result = await session.execute(
+            select(PurchaseOfferResult, ShopPoint.seller_id)
+            .join(Offer, Offer.id == PurchaseOfferResult.offer_id)
+            .join(ShopPoint, ShopPoint.id == Offer.shop_id)
+            .where(PurchaseOfferResult.id.in_(offer_result_ids))
+            .with_for_update()
+        )
+        return result.all()
+
+    async def get_purchase_offers_by_purchase_and_offer_ids(
+        self,
+        session: AsyncSession,
+        purchase_id: int,
+        offer_ids: List[int],
+    ) -> List[PurchaseOffer]:
+        """Get purchase offers by purchase ID and offer IDs"""
+        result = await session.execute(
+            select(PurchaseOffer).where(
+                PurchaseOffer.purchase_id == purchase_id,
+                PurchaseOffer.offer_id.in_(offer_ids),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def update_offer_result_refund_progress(
+        self,
+        session: AsyncSession,
+        offer_result_id: int,
+        refund_id: int,
+        refunded_quantity: int,
+        status: str,
+        message: str,
+    ) -> None:
+        """Update purchase offer result refund progress"""
+        await session.execute(
+            update(PurchaseOfferResult)
+            .where(PurchaseOfferResult.id == offer_result_id)
+            .values(
+                status=status,
+                refund_id=refund_id,
+                refunded_quantity=refunded_quantity,
+                message=message,
+            )
+        )
