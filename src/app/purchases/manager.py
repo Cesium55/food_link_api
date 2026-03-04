@@ -523,7 +523,7 @@ class PurchasesManager:
                 detail=f"Invalid fulfillment_status. Valid values: {', '.join(sorted(valid_fulfillment_statuses))}"
             )
 
-        purchases, total_count, purchase_offers_map = await self.service.get_seller_purchases_paginated(
+        purchases, total_count, purchase_offers_map, offer_results_by_purchase_id = await self.service.get_seller_purchases_paginated(
             session=session,
             seller_id=seller_id,
             page=page,
@@ -549,7 +549,7 @@ class PurchasesManager:
                     purchase=purchase,
                     purchase_offers=seller_offers,
                     offers_dict=offers_dict,
-                    offer_results=[],
+                    offer_results=offer_results_by_purchase_id.get(purchase.id, []),
                 )
             )
 

@@ -345,7 +345,7 @@ class TestGetCurrentUserAPI:
         """Test getting current user without token"""
         response = await client.post("/auth")
         
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 class TestVerifyPhoneAPI:
@@ -429,4 +429,3 @@ class TestResendVerificationCodeAPI:
         assert "message" in data
         assert "phone" in data
         mock_sms_manager.send_verification_code.assert_called_once()
-

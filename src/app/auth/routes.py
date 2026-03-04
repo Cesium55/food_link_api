@@ -1,5 +1,4 @@
-from fastapi import APIRouter, Request, HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Request, Depends
 from app.auth import schemas
 from app.auth.manager import AuthManager
 from app.auth.models import User
@@ -7,9 +6,8 @@ from utils.auth_dependencies import get_current_user as get_current_user_dep
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
-# Initialize manager and security
+# Initialize manager
 auth_manager = AuthManager()
-security = HTTPBearer()
 
 
 @router.post("/register", response_model=schemas.TokenResponse)
@@ -39,12 +37,10 @@ async def refresh_tokens(
 @router.post("/resend-verification-code")
 async def resend_phone_verification_code(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    user: User = Depends(get_current_user_dep),
 ) -> dict:
     """Resend verification code to phone number (for authenticated users)"""
-    token = credentials.credentials
-    user = await auth_manager.get_current_user_by_token(request.state.session, token)
-    
+
     return await auth_manager.resend_phone_verification_code(
         request.state.session,
         user.id
@@ -55,13 +51,9 @@ async def resend_phone_verification_code(
 async def verify_phone(
     request: Request,
     verify_data: schemas.VerifyPhoneRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    user: User = Depends(get_current_user_dep),
 ) -> schemas.TokenResponse:
     """Verify phone number with code and get new token with phone_verified=True"""
-    token = credentials.credentials
-    user = await auth_manager.get_current_user_by_token(request.state.session, token)
-    print("user got")
-    
     return await auth_manager.verify_phone_code(
         request.state.session,
         verify_data.code,
@@ -72,16 +64,14 @@ async def verify_phone(
 @router.post("", response_model=schemas.UserResponse, summary="Get current user", description="Get current user information by Bearer token")
 async def get_current_user_info(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    user: User = Depends(get_current_user_dep),
 ):
     """Get current user by token
     
     Requires Bearer token in Authorization header.
     Use the 'Authorize' button in Swagger UI to set the token.
     """
-    token = credentials.credentials
-    user = await auth_manager.get_current_user_by_token(request.state.session, token)
-    
+
     return {
         "id": user.id,
         "email": user.email,

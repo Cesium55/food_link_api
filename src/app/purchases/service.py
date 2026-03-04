@@ -156,7 +156,12 @@ class PurchasesService:
         max_created_at: Optional[datetime] = None,
         min_updated_at: Optional[datetime] = None,
         max_updated_at: Optional[datetime] = None
-    ) -> tuple[List[Purchase], int, Dict[int, List[PurchaseOffer]]]:
+    ) -> tuple[
+        List[Purchase],
+        int,
+        Dict[int, List[PurchaseOffer]],
+        Dict[int, List[PurchaseOfferResult]],
+    ]:
         """Get paginated purchases containing current seller's offers only."""
         conditions = [ShopPoint.seller_id == seller_id]
 
@@ -203,7 +208,7 @@ class PurchasesService:
         purchase_ids = [row[0] for row in purchase_ids_result.all()]
 
         if not purchase_ids:
-            return [], total_count, {}
+            return [], total_count, {}, {}
 
         purchases_result = await session.execute(
             select(Purchase).where(Purchase.id.in_(purchase_ids))
@@ -233,7 +238,22 @@ class PurchasesService:
         for purchase_offer in seller_purchase_offers:
             purchase_offers_map.setdefault(purchase_offer.purchase_id, []).append(purchase_offer)
 
-        return ordered_purchases, total_count, purchase_offers_map
+        seller_offer_ids = list({purchase_offer.offer_id for purchase_offer in seller_purchase_offers})
+        offer_results_map: Dict[int, List[PurchaseOfferResult]] = {}
+        if seller_offer_ids:
+            offer_results_result = await session.execute(
+                select(PurchaseOfferResult).where(
+                    and_(
+                        PurchaseOfferResult.purchase_id.in_(purchase_ids),
+                        PurchaseOfferResult.offer_id.in_(seller_offer_ids),
+                    )
+                )
+            )
+            seller_offer_results = list(offer_results_result.scalars().all())
+            for offer_result in seller_offer_results:
+                offer_results_map.setdefault(offer_result.purchase_id, []).append(offer_result)
+
+        return ordered_purchases, total_count, purchase_offers_map, offer_results_map
     
     async def get_purchases(
         self, session: AsyncSession,
@@ -372,6 +392,26 @@ class PurchasesService:
                 )
             )
             .with_for_update()
+        )
+        return list(result.scalars().all())
+
+    async def get_purchase_offer_results_by_purchase_ids_and_offer_ids(
+        self,
+        session: AsyncSession,
+        purchase_ids: List[int],
+        offer_ids: List[int],
+    ) -> List[PurchaseOfferResult]:
+        """Get purchase offer results by purchase IDs and offer IDs"""
+        if not purchase_ids or not offer_ids:
+            return []
+
+        result = await session.execute(
+            select(PurchaseOfferResult).where(
+                and_(
+                    PurchaseOfferResult.purchase_id.in_(purchase_ids),
+                    PurchaseOfferResult.offer_id.in_(offer_ids),
+                )
+            )
         )
         return list(result.scalars().all())
 
