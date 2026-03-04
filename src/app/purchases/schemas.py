@@ -73,6 +73,12 @@ class OfferProcessingResult(BaseModel):
     requested_quantity: int = Field(..., description="Requested quantity")
     processed_quantity: Optional[int] = Field(None, description="Actually processed quantity (if partial success)")
     available_quantity: Optional[int] = Field(None, description="Available quantity (if insufficient)")
+    refund_id: Optional[int] = Field(None, description="Linked refund ID")
+    refunded_quantity: int = Field(0, ge=0, description="Total refunded quantity")
+    money_flow_status: Optional[str] = Field(
+        None,
+        description="Money flow status: at_user, in_system, at_seller",
+    )
     message: Optional[str] = Field(None, description="Human-readable message about the result")
 
 

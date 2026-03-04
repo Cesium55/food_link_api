@@ -770,6 +770,9 @@ class PurchasesManager:
                         requested_quantity=result.requested_quantity,
                         processed_quantity=result.processed_quantity,
                         available_quantity=result.available_quantity,
+                        refund_id=result.refund_id,
+                        refunded_quantity=result.refunded_quantity,
+                        money_flow_status=result.money_flow_status,
                         message=result.message
                     ))
                 elif isinstance(result, schemas.OfferProcessingResult):
