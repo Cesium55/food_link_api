@@ -920,13 +920,37 @@ class PurchasesManager:
         purchase_offers = await self.service.get_purchase_offers_by_seller_and_purchase(
             session, purchase_id, seller_id
         )
-        
+
+        offer_ids = [po.offer_id for po in purchase_offers]
+        offer_results = await self.service.get_purchase_offer_results_by_purchase_ids_and_offer_ids(
+            session=session,
+            purchase_ids=[purchase_id],
+            offer_ids=offer_ids,
+        )
+        offer_results_by_offer_id = {result.offer_id: result for result in offer_results}
+
         # Build response items
         items = []
         total_cost = Decimal('0.00')
         
         for po in purchase_offers:
             if po.offer and po.offer.product:
+                offer_result_model = offer_results_by_offer_id.get(po.offer_id)
+                offer_result_schema = None
+                if offer_result_model:
+                    offer_result_schema = schemas.OfferProcessingResult(
+                        id=offer_result_model.id,
+                        offer_id=offer_result_model.offer_id,
+                        status=schemas.OfferProcessingStatus(offer_result_model.status),
+                        requested_quantity=offer_result_model.requested_quantity,
+                        processed_quantity=offer_result_model.processed_quantity,
+                        available_quantity=offer_result_model.available_quantity,
+                        refund_id=offer_result_model.refund_id,
+                        refunded_quantity=offer_result_model.refunded_quantity,
+                        money_flow_status=offer_result_model.money_flow_status,
+                        message=offer_result_model.message,
+                    )
+
                 items.append(schemas.PurchaseOfferForFulfillment(
                     purchase_offer_id=po.offer_id,  # Using offer_id as identifier (composite key with purchase_id)
                     offer_id=po.offer_id,
@@ -936,7 +960,8 @@ class PurchasesManager:
                     fulfilled_at=po.fulfilled_at,
                     product_name=po.offer.product.name,
                     shop_point_id=po.offer.shop_id,
-                    cost_at_purchase=po.cost_at_purchase
+                    cost_at_purchase=po.cost_at_purchase,
+                    offer_result=offer_result_schema,
                 ))
                 if po.cost_at_purchase:
                     total_cost += po.cost_at_purchase * po.quantity

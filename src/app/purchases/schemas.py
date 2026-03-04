@@ -138,6 +138,10 @@ class PurchaseOfferForFulfillment(BaseModel):
     product_name: str = Field(..., description="Product name")
     shop_point_id: int = Field(..., description="Shop point ID")
     cost_at_purchase: Optional[Decimal] = Field(None, ge=0, description="Cost at purchase time")
+    offer_result: Optional[OfferProcessingResult] = Field(
+        None,
+        description="Full purchase offer processing/refund result",
+    )
 
 
 class PurchaseInfoByTokenResponse(BaseModel):
