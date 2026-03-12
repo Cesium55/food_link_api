@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
 from sqlalchemy import Column, Integer, String, Double, DateTime, ForeignKey, CheckConstraint, UniqueConstraint
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models import Base, ImageMixin
@@ -22,6 +23,7 @@ class Product(Base):
     description: Mapped[Optional[str]] = mapped_column(String(10000))
     article: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     code: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    search_vector: Mapped[Optional[str]] = mapped_column(TSVECTOR, nullable=True)
     seller_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("sellers.id"), nullable=False
     )

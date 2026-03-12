@@ -34,6 +34,7 @@ async def get_products(
     page_size: int = Query(default=20, ge=1, description="Number of items per page"),
     article: Optional[str] = Query(default=None, description="Filter by article"),
     code: Optional[str] = Query(default=None, description="Filter by code"),
+    search_query: Optional[str] = Query(default=None, description="Full-text search query"),
     seller_id: Optional[int] = Query(default=None, ge=1, description="Filter by seller ID"),
     category_ids: Optional[List[int]] = Query(default=None, description="Filter by category IDs (products must have at least one of these categories)")
 ) -> PaginatedResponse[schemas.Product]:
@@ -41,7 +42,7 @@ async def get_products(
     Get paginated list of products with optional filters
     """
     return await products_manager.get_products_paginated(
-        request.state.session, page, page_size, article, code, seller_id, category_ids
+        request.state.session, page, page_size, article, code, search_query, seller_id, category_ids
     )
 
 

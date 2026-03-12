@@ -32,6 +32,7 @@ async def get_offers(
     page: int = Query(default=1, ge=1, description="Page number (starts from 1)"),
     page_size: int = Query(default=20, ge=1, description="Number of items per page"),
     product_id: Optional[int] = Query(default=None, ge=1, description="Filter by product ID"),
+    search_query: Optional[str] = Query(default=None, description="Full-text search query by product/seller"),
     seller_id: Optional[int] = Query(default=None, ge=1, description="Filter by seller ID"),
     shop_id: Optional[int] = Query(default=None, ge=1, description="Filter by shop point ID"),
     category_ids: Optional[List[int]] = Query(default=None, description="Filter by category IDs (offers with products having at least one of these categories)"),
@@ -56,7 +57,7 @@ async def get_offers(
     return await offers_manager.get_offers_paginated(
         request.state.session,
         page, page_size,
-        product_id, seller_id, shop_id, category_ids,
+        product_id, search_query, seller_id, shop_id, category_ids,
         min_expires_date, max_expires_date,
         min_original_cost, max_original_cost,
         min_current_cost, max_current_cost,
@@ -71,6 +72,7 @@ async def get_offers(
 async def get_offers_with_products(
     request: Request,
     product_id: Optional[int] = Query(default=None, ge=1, description="Filter by product ID"),
+    search_query: Optional[str] = Query(default=None, description="Full-text search query by product/seller"),
     seller_id: Optional[int] = Query(default=None, ge=1, description="Filter by seller ID"),
     shop_id: Optional[int] = Query(default=None, ge=1, description="Filter by shop point ID"),
     category_ids: Optional[List[int]] = Query(default=None, description="Filter by category IDs (offers with products having at least one of these categories)"),
@@ -94,7 +96,7 @@ async def get_offers_with_products(
     """
     return await offers_manager.get_offers_with_products(
         request.state.session,
-        product_id, seller_id, shop_id, category_ids,
+        product_id, search_query, seller_id, shop_id, category_ids,
         min_expires_date, max_expires_date,
         min_original_cost, max_original_cost,
         min_current_cost, max_current_cost,

@@ -5,6 +5,9 @@ import asyncio
 from pydantic import BaseModel, Field, model_validator
 from app.debug.init import initialize_categories_from_json_file
 from app.debug.recalculate_purchase_statuses import recalculate_purchase_statuses
+from app.debug.recalculate_product_search_vectors import (
+    recalculate_product_search_vectors,
+)
 from app.purchases.tasks import cancel_all_expired_purchases
 from app.auth.service import AuthService
 from app.offers.init_pricing_strategies import init_pricing_strategies
@@ -141,6 +144,21 @@ async def cancel_expired_purchases(request: Request) -> Dict[str, Any]:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to cancel expired purchases: {str(e)}"
+        )
+
+
+@router.post("/recalculate-product-search-vectors")
+async def recalculate_product_search_vectors_handler(request: Request) -> Dict[str, Any]:
+    """
+    Recalculate product full-text search vectors for all products.
+    Useful after migrations or when seller/product names were changed in bulk.
+    """
+    try:
+        return await recalculate_product_search_vectors(request.state.session)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to recalculate product search vectors: {str(e)}",
         )
 
 
@@ -694,4 +712,3 @@ async def tg_send_code(number: str) -> Dict[str, Any]:
         "message": "Verification code sent successfully",
         "result": result
     }
-

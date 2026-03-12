@@ -13,6 +13,7 @@ from app.shop_points.models import ShopPoint
 
 class OffersService:
     """Service for working with offers"""
+    _fts_config = "russian"
 
     async def create_offer(
         self, session: AsyncSession, schema: schemas.OfferCreate
@@ -82,6 +83,7 @@ class OffersService:
     def _build_offers_query_with_filters(
         self,
         product_id: Optional[int] = None,
+        search_query: Optional[str] = None,
         seller_id: Optional[int] = None,
         shop_id: Optional[int] = None,
         category_ids: Optional[List[int]] = None,
@@ -105,7 +107,11 @@ class OffersService:
         base_query = select(Offer)
         
         needs_category_join = category_ids is not None and len(category_ids) > 0
-        needs_product_join = seller_id is not None or needs_category_join
+        needs_product_join = (
+            seller_id is not None
+            or needs_category_join
+            or (search_query is not None and search_query.strip())
+        )
         needs_shop_join = (
             min_latitude is not None or max_latitude is not None or
             min_longitude is not None or max_longitude is not None
@@ -138,6 +144,12 @@ class OffersService:
         conditions = []
         if product_id is not None:
             conditions.append(Offer.product_id == product_id)
+        if search_query is not None and search_query.strip():
+            conditions.append(
+                Product.search_vector.op("@@")(
+                    func.plainto_tsquery(self._fts_config, search_query.strip())
+                )
+            )
         if seller_id is not None:
             conditions.append(Product.seller_id == seller_id)
         if shop_id is not None:
@@ -184,6 +196,7 @@ class OffersService:
     async def get_offers_paginated(
         self, session: AsyncSession, page: int, page_size: int,
         product_id: Optional[int] = None,
+        search_query: Optional[str] = None,
         seller_id: Optional[int] = None,
         shop_id: Optional[int] = None,
         category_ids: Optional[List[int]] = None,
@@ -202,7 +215,7 @@ class OffersService:
     ) -> tuple[List[Offer], int]:
         """Get paginated list of offers with optional filters including location-based filtering"""
         base_query, conditions, needs_product_join, needs_shop_join, needs_category_join = self._build_offers_query_with_filters(
-            product_id, seller_id, shop_id, category_ids,
+            product_id, search_query, seller_id, shop_id, category_ids,
             min_expires_date, max_expires_date,
             min_original_cost, max_original_cost,
             min_current_cost, max_current_cost,
@@ -253,6 +266,7 @@ class OffersService:
         self,
         session: AsyncSession,
         product_id: Optional[int] = None,
+        search_query: Optional[str] = None,
         seller_id: Optional[int] = None,
         shop_id: Optional[int] = None,
         category_ids: Optional[List[int]] = None,
@@ -271,7 +285,7 @@ class OffersService:
     ) -> List[Offer]:
         """Get list of offers with product information and optional filters"""
         base_query, _, _, _, _ = self._build_offers_query_with_filters(
-            product_id, seller_id, shop_id, category_ids,
+            product_id, search_query, seller_id, shop_id, category_ids,
             min_expires_date, max_expires_date,
             min_original_cost, max_original_cost,
             min_current_cost, max_current_cost,

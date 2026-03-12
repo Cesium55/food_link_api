@@ -146,6 +146,7 @@ class OffersManager:
         page: int,
         page_size: int,
         product_id: Optional[int] = None,
+        search_query: Optional[str] = None,
         seller_id: Optional[int] = None,
         shop_id: Optional[int] = None,
         category_ids: Optional[List[int]] = None,
@@ -165,7 +166,7 @@ class OffersManager:
         """Get paginated list of offers with optional filters"""
         offers, total_count = await self.service.get_offers_paginated(
             session, page, page_size,
-            product_id, seller_id, shop_id,
+            product_id, search_query, seller_id, shop_id,
             category_ids,
             min_expires_date, max_expires_date,
             min_original_cost, max_original_cost,
@@ -189,6 +190,7 @@ class OffersManager:
         self,
         session: AsyncSession,
         product_id: Optional[int] = None,
+        search_query: Optional[str] = None,
         seller_id: Optional[int] = None,
         shop_id: Optional[int] = None,
         category_ids: Optional[List[int]] = None,
@@ -208,7 +210,7 @@ class OffersManager:
         """Get list of offers with product information and optional filters"""
         offers = await self.service.get_offers_with_products(
             session,
-            product_id, seller_id, shop_id,
+            product_id, search_query, seller_id, shop_id,
             category_ids,
             min_expires_date, max_expires_date,
             min_original_cost, max_original_cost,
@@ -340,4 +342,3 @@ class OffersManager:
                 detail=f"Pricing strategy with id {strategy_id} not found"
             )
         return schemas.PricingStrategy.model_validate(strategy)
-

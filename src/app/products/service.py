@@ -6,15 +6,40 @@ from sqlalchemy.orm import selectinload
 from app.products import schemas
 from app.products.models import Product, ProductImage, ProductAttribute
 from app.product_categories.models import ProductCategory, product_category_relations
+from app.sellers.models import Seller
 
 
 class ProductsService:
     """Service for working with products"""
 
+    _fts_config = "russian"
+
+    @staticmethod
+    def _product_search_vector_expression(
+        seller_name_expression,
+        product_name_expression,
+        product_description_expression,
+    ):
+        return func.to_tsvector(
+            ProductsService._fts_config,
+            func.concat_ws(
+                " ",
+                func.coalesce(seller_name_expression, ""),
+                func.coalesce(product_name_expression, ""),
+                func.coalesce(product_description_expression, ""),
+            ),
+        )
+
     async def create_product(
         self, session: AsyncSession, schema: schemas.ProductCreate, seller_id: int
     ) -> Product:
         """Create a new product"""
+        seller_name_subquery = (
+            select(Seller.short_name)
+            .where(Seller.id == seller_id)
+            .scalar_subquery()
+        )
+
         # Insert product and get the ID
         result = await session.execute(
             insert(Product)
@@ -23,7 +48,10 @@ class ProductsService:
                 description=schema.description,
                 article=schema.article,
                 code=schema.code,
-                seller_id=seller_id
+                seller_id=seller_id,
+                search_vector=self._product_search_vector_expression(
+                    seller_name_subquery, schema.name, schema.description
+                ),
             )
             .returning(Product)
         )
@@ -73,6 +101,7 @@ class ProductsService:
         self, session: AsyncSession, page: int, page_size: int,
         article: Optional[str] = None,
         code: Optional[str] = None,
+        search_query: Optional[str] = None,
         seller_id: Optional[int] = None,
         category_ids: Optional[List[int]] = None
     ) -> tuple[List[Product], int]:
@@ -104,6 +133,12 @@ class ProductsService:
             conditions.append(Product.article == article)
         if code is not None:
             conditions.append(Product.code == code)
+        if search_query is not None and search_query.strip():
+            conditions.append(
+                Product.search_vector.op("@@")(
+                    func.plainto_tsquery(self._fts_config, search_query.strip())
+                )
+            )
         if seller_id is not None:
             conditions.append(Product.seller_id == seller_id)
         
@@ -205,9 +240,16 @@ class ProductsService:
 
         # Update product and get the updated record
         if update_data:
+            if "name" in update_data or "description" in update_data:
+                update_data["search_vector"] = self._product_search_vector_expression(
+                    Seller.short_name,
+                    update_data.get("name", Product.name),
+                    update_data.get("description", Product.description),
+                )
             result = await session.execute(
                 update(Product)
                 .where(Product.id == product_id)
+                .where(Product.seller_id == Seller.id)
                 .values(**update_data)
                 .returning(Product)
             )
@@ -283,6 +325,40 @@ class ProductsService:
             .order_by(Product.name)
         )
         return result.scalars().all()
+
+    async def recalculate_product_search_vector(
+        self, session: AsyncSession, product_id: int
+    ) -> None:
+        """Recalculate full-text search vector for a single product."""
+        await session.execute(
+            update(Product)
+            .where(Product.id == product_id)
+            .where(Product.seller_id == Seller.id)
+            .values(
+                search_vector=self._product_search_vector_expression(
+                    Seller.short_name,
+                    Product.name,
+                    Product.description,
+                )
+            )
+        )
+
+    async def recalculate_all_products_search_vectors(
+        self, session: AsyncSession
+    ) -> int:
+        """Recalculate full-text search vectors for all products."""
+        result = await session.execute(
+            update(Product)
+            .where(Product.seller_id == Seller.id)
+            .values(
+                search_vector=self._product_search_vector_expression(
+                    Seller.short_name,
+                    Product.name,
+                    Product.description,
+                )
+            )
+        )
+        return result.rowcount or 0
 
     async def _add_categories_to_product(
         self, session: AsyncSession, product_id: int, category_ids: List[int]

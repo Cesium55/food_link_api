@@ -76,12 +76,13 @@ class ProductsManager:
         self, session: AsyncSession, page: int, page_size: int,
         article: Optional[str] = None,
         code: Optional[str] = None,
+        search_query: Optional[str] = None,
         seller_id: Optional[int] = None,
         category_ids: Optional[List[int]] = None
     ) -> PaginatedResponse[schemas.Product]:
         """Get paginated list of products with optional filters"""
         products, total_count = await self.service.get_products_paginated(
-            session, page, page_size, article, code, seller_id, category_ids
+            session, page, page_size, article, code, search_query, seller_id, category_ids
         )
         result = []
         for product in products:
