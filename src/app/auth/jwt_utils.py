@@ -16,8 +16,12 @@ class JWTUtils:
     
     def __init__(self):
         self.algorithm = settings.jwt_algorithm
-        self.access_token_expire_minutes = settings.jwt_access_token_expire_minutes
-        self.refresh_token_expire_days = settings.jwt_refresh_token_expire_days
+        self.access_token_ttl = timedelta(
+            seconds=settings.access_token_ttl
+        )
+        self.refresh_token_ttl = timedelta(
+            seconds=settings.refresh_token_ttl
+        )
         
         # Load RSA keys for RS256
         if self.algorithm == "RS256":
@@ -68,7 +72,7 @@ class JWTUtils:
             "phone_verified": user.phone_verified,
             "is_seller": user.is_seller,
             "type": "access",
-            "exp": datetime.now(timezone.utc) + timedelta(minutes=self.access_token_expire_minutes)
+            "exp": datetime.now(timezone.utc) + self.access_token_ttl
         }
         if self.algorithm == "RS256":
             return jwt.encode(payload, self.private_key, algorithm=self.algorithm)

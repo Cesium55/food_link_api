@@ -110,8 +110,8 @@ def mock_jwt_settings():
     with patch('app.auth.jwt_utils.settings') as mock_settings:
         mock_settings.jwt_algorithm = "HS256"
         mock_settings.jwt_secret_key = "test_secret_key"
-        mock_settings.jwt_access_token_expire_minutes = 30
-        mock_settings.jwt_refresh_token_expire_days = 30
+        mock_settings.access_token_ttl = 1800
+        mock_settings.refresh_token_ttl = 2592000
         yield mock_settings
 
 
@@ -677,4 +677,3 @@ class TestJWTUtils:
         user_id = jwt_utils.get_user_id_from_token("valid_token")
         
         assert user_id == TEST_USER_ID
-

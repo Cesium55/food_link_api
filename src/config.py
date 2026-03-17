@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     
     # JWT настройки для аутентификации
     jwt_secret_key: str = "your-jwt-secret-key-here"  # Deprecated, kept for backward compatibility
-    jwt_access_token_expire_minutes: int = 30
-    jwt_refresh_token_expire_days: int = 30
+    access_token_ttl: int = 1800
+    refresh_token_ttl: int = 2592000
     jwt_algorithm: str = "RS256"
     jwt_private_key_path: str = "keys/jwt_private_key.pem"
     jwt_public_key_path: str = "keys/jwt_public_key.pem"

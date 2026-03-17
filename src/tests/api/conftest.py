@@ -146,8 +146,8 @@ def mock_settings():
         mock_settings.auth_enable_phone = True
         mock_settings.jwt_algorithm = "HS256"
         mock_settings.jwt_secret_key = "test-secret-key-for-testing-only"
-        mock_settings.jwt_access_token_expire_minutes = 30
-        mock_settings.jwt_refresh_token_expire_days = 30
+        mock_settings.access_token_ttl = 1800
+        mock_settings.refresh_token_ttl = 2592000
         yield mock_settings
 
 
