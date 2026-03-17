@@ -1,5 +1,5 @@
 from typing import Optional
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, update, delete
 from app.auth.models import User, RefreshToken
@@ -70,7 +70,7 @@ class AuthService:
             insert(RefreshToken).values(
                 user_id=user_id,
                 expires_at=expires_at,
-                created_at=datetime.now()
+                created_at=datetime.utcnow()
             ).returning(RefreshToken)
         )
         return result.scalar_one()
@@ -93,7 +93,7 @@ class AuthService:
     async def cleanup_expired_tokens(self, session: AsyncSession) -> None:
         """Clean up expired refresh tokens"""
         await session.execute(
-            delete(RefreshToken).where(RefreshToken.expires_at < datetime.now())
+            delete(RefreshToken).where(RefreshToken.expires_at < datetime.utcnow())
         )
 
     async def update_user_is_seller(self, session: AsyncSession, user_id: int, is_seller: bool) -> User:
