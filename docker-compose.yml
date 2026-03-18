@@ -142,3 +142,4 @@ volumes:
 networks:
   food_link_network:
     driver: bridge
+    external: true

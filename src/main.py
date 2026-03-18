@@ -29,6 +29,8 @@ from middleware.timing_middleware import TimingMiddleware
 from middleware.response_wrapper_middleware import ResponseWrapperMiddleware
 from utils.image_manager import ImageManager
 
+from prometheus_fastapi_instrumentator import Instrumentator
+
 from database import async_engine
 
 
@@ -59,6 +61,8 @@ app = FastAPI(
     debug=settings.debug,
     lifespan=lifespan,
 )
+
+Instrumentator().instrument(app).expose(app)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
