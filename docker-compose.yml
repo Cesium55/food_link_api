@@ -29,7 +29,7 @@ services:
       DB_NAME: ${DB_NAME}
       APP_NAME: ${APP_NAME}
       APP_VERSION: ${APP_VERSION}
-      DEBUG: true
+      DEBUG: ${DEBUG}
       ENVIRONMENT: development
       SERVER_HOST: ${SERVER_HOST}
       SERVER_PORT: ${SERVER_PORT}
