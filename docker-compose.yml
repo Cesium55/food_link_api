@@ -1,7 +1,6 @@
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: food_link_postgres
     hostname: food_link_postgres
     environment:
       POSTGRES_DB: ${DB_NAME}
@@ -17,7 +16,7 @@ services:
 
   api:
     build: .
-    container_name: food_link_api
+    hostname: food_link_api
     environment:
       YANDEX_MAP_API_KEY: ${YANDEX_MAP_API_KEY}
       DB_SYNC_DRIVER: ${DB_SYNC_DRIVER}
@@ -75,7 +74,7 @@ services:
 
   redis:
     image: redis:latest
-    container_name: food_link_redis
+    hostname: food_link_redis
     ports:
       - "${REDIS_PORT}:6379"
     volumes:
@@ -86,7 +85,7 @@ services:
 
   celery_worker:
     build: .
-    container_name: food_link_celery_worker
+    hostname: food_link_celery_worker
     command: ["uv", "run", "python", "run_celery.py"]
     environment:
       DB_SYNC_DRIVER: ${DB_SYNC_DRIVER}
@@ -114,7 +113,6 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: food-link-minio
     hostname: food-link-minio
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
