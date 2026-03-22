@@ -9,6 +9,13 @@ from app.auth import schemas
 from app.sellers.service import SellersService
 from utils.errors_handler import handle_alchemy_error
 from utils.redis.verification_codes import store_verification_code, verify_code, _format_phone_number
+from utils.redis.refresh_tokens import (
+    acquire_refresh_lock,
+    get_rotated_tokens,
+    release_refresh_lock,
+    store_rotated_tokens,
+    wait_for_rotated_tokens,
+)
 from config import settings
 from logger import get_sync_logger
 from utils.tg_gateway_manager import TelegramGatewayClient
@@ -174,24 +181,44 @@ class AuthManager:
     @handle_alchemy_error
     async def refresh_tokens(self, session: AsyncSession, refresh_data: schemas.RefreshTokenRequest) -> schemas.TokenResponse:
         """Refresh access token"""
-        # Check if refresh token exists in database and is not revoked
-        db_token = await self.service.get_refresh_token(session, refresh_data.refresh_token)
-        if not db_token or db_token.is_revoked or db_token.expires_at < datetime.utcnow():
+        cached_tokens = await get_rotated_tokens(refresh_data.refresh_token)
+        if cached_tokens:
+            return cached_tokens
+
+        lock_acquired = await acquire_refresh_lock(refresh_data.refresh_token)
+        if not lock_acquired:
+            cached_tokens = await wait_for_rotated_tokens(refresh_data.refresh_token)
+            if cached_tokens:
+                return cached_tokens
             raise INVALID_REFRESH_TOKEN
-        
-        # Get user
-        user = await self.service.get_user(session, db_token.user_id)
-        if not user:
-            raise INVALID_REFRESH_TOKEN
-        
-        # Revoke old refresh token
-        await self.service.revoke_refresh_token(session, refresh_data.refresh_token)
-        
-        # Create new tokens
-        tokens = await self._create_tokens_for_user(session, user)
-        
-        await session.commit()
-        return tokens
+
+        try:
+            cached_tokens = await get_rotated_tokens(refresh_data.refresh_token)
+            if cached_tokens:
+                return cached_tokens
+
+            db_token = await self.service.consume_refresh_token(
+                session,
+                refresh_data.refresh_token,
+            )
+            if not db_token:
+                raise INVALID_REFRESH_TOKEN
+
+            user = await self.service.get_user(session, db_token.user_id)
+            if not user:
+                raise INVALID_REFRESH_TOKEN
+
+            tokens = await self._create_tokens_for_user(session, user)
+            await session.commit()
+
+            await store_rotated_tokens(
+                refresh_data.refresh_token,
+                tokens,
+                expire_seconds=settings.refresh_token_grace_period_seconds,
+            )
+            return tokens
+        finally:
+            await release_refresh_lock(refresh_data.refresh_token)
     
     @handle_alchemy_error
     async def get_user(self, session: AsyncSession, user_id: int) -> dict:

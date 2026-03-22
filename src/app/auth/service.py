@@ -81,6 +81,20 @@ class AuthService:
             select(RefreshToken).where(RefreshToken.token == token)
         )
         return result.scalar_one_or_none()
+
+    async def consume_refresh_token(self, session: AsyncSession, token: str) -> Optional[RefreshToken]:
+        """Atomically revoke a refresh token and return it if it was still active."""
+        result = await session.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.token == token,
+                RefreshToken.is_revoked.is_(False),
+                RefreshToken.expires_at >= datetime.utcnow(),
+            )
+            .values(is_revoked=True)
+            .returning(RefreshToken)
+        )
+        return result.scalar_one_or_none()
     
     async def revoke_refresh_token(self, session: AsyncSession, token: str) -> None:
         """Revoke refresh token"""

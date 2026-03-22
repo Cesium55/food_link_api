@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "your-jwt-secret-key-here"  # Deprecated, kept for backward compatibility
     access_token_ttl: int = 1800
     refresh_token_ttl: int = 2592000
+    refresh_token_grace_period_seconds: int = 10
+    refresh_token_lock_timeout_seconds: int = 5
     jwt_algorithm: str = "RS256"
     jwt_private_key_path: str = "keys/jwt_private_key.pem"
     jwt_public_key_path: str = "keys/jwt_public_key.pem"
