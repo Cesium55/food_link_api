@@ -10,6 +10,7 @@ wheels/
 .vscode
 .cursor
 agents.md
+.codex
 
 # Virtual environments
 .venv
