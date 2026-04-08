@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     s3_secret_access_key: str = "minioadmin"
     s3_bucket_name: str = "food-link-images"
     s3_region_name: str = "us-east-1"
+    s3_public_prefix: str = "https://gembos.ru/images/food-link-images"
     
     # Настройки Exolve SMS
     exolve_api_key: Optional[str] = None

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html style="margin: 0; padding: 0; height: 100%;">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script src="https://api-maps.yandex.ru/v3/?apikey={{ yandex_map_api_key }}&lang=ru_RU"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body,
+        #app {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #edf3f8;
+        }
+
+        .seller-avatar-marker-anchor {
+            position: relative;
+            width: 0;
+            height: 0;
+        }
+
+        .seller-avatar-marker {
+            position: absolute;
+            left: -18px;
+            top: -18px;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            overflow: hidden;
+            cursor: pointer;
+            background: linear-gradient(135deg, #ffffff 0%, #e5edf6 100%);
+            border: 2px solid #ffffff;
+            box-shadow: 0 8px 18px rgba(35, 52, 73, 0.22);
+            transition: transform 0.14s ease, box-shadow 0.14s ease;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        .seller-avatar-marker:hover {
+            transform: translateY(-2px) scale(1.03);
+            box-shadow: 0 14px 30px rgba(35, 52, 73, 0.28);
+        }
+
+        .seller-avatar-marker.pulse {
+            transform: scale(0.96);
+        }
+
+        .seller-avatar-marker-image,
+        .seller-avatar-marker-fallback {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .seller-avatar-marker-image {
+            object-fit: cover;
+            background: #d7e3ef;
+        }
+
+        .seller-avatar-marker-fallback {
+            background:
+                radial-gradient(circle at top left, #8fc6ff 0%, #447fca 55%, #2e5e98 100%);
+            color: #ffffff;
+            font: 700 11px/1 "Segoe UI", sans-serif;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+    </style>
+</head>
+
+<body>
+    <div id="app"></div>
+
+    <script>
+        window.MAP_MARKERS_DATA = {{ markers | tojson | safe }};
+    </script>
+
+    <script data-plugins="transform-modules-umd" data-presets="typescript" type="text/babel"
+        src="/static/js/geolocation.js"></script>
+
+    <script>
+        window.addEventListener("load", function () {
+            async function initMap() {
+                try {
+                    await ymaps3.ready;
+                    ymaps3.import.registerCdn(
+                        "https://cdn.jsdelivr.net/npm/{package}",
+                        "@yandex/ymaps3-default-ui-theme@0.0"
+                    );
+
+                    const {
+                        YMap,
+                        YMapDefaultSchemeLayer,
+                        YMapMarker,
+                        YMapDefaultFeaturesLayer,
+                        YMapControls
+                    } = ymaps3;
+
+                    const { YMapGeolocationControl } = await ymaps3.import("@yandex/ymaps3-default-ui-theme");
+
+                    const map = new YMap(
+                        document.getElementById("app"),
+                        {
+                            location: {
+                                center: [37.588144, 55.733842],
+                                zoom: 10
+                            }
+                        },
+                        [
+                            new YMapDefaultSchemeLayer({}),
+                            new YMapDefaultFeaturesLayer()
+                        ]
+                    );
+
+                    map.addChild(
+                        new YMapControls({ position: "right" })
+                            .addChild(new YMapGeolocationControl({ easing: "ease-in-out", duration: 2000, zoom: 10 }))
+                    );
+
+                    const markersData = window.MAP_MARKERS_DATA || [];
+
+                    function getFallbackText(markerData) {
+                        const source = (markerData.seller_name || markerData.label || "").trim();
+                        if (!source) {
+                            return "SP";
+                        }
+                        const parts = source.split(/\s+/).filter(Boolean).slice(0, 2);
+                        const letters = parts.map((part) => part[0]).join("");
+                        return (letters || source.slice(0, 2)).toUpperCase();
+                    }
+
+                    markersData.forEach((markerData) => {
+                        const markerAnchor = document.createElement("div");
+                        markerAnchor.className = "seller-avatar-marker-anchor";
+
+                        const markerElement = document.createElement("div");
+                        markerElement.className = "seller-avatar-marker";
+                        markerElement.title = markerData.title || markerData.seller_name || "Shop Point";
+
+                        const imageUrl = markerData.seller_image_url;
+                        if (imageUrl) {
+                            const image = document.createElement("img");
+                            image.className = "seller-avatar-marker-image";
+                            image.src = imageUrl;
+                            image.alt = markerData.seller_name || "Seller";
+                            image.loading = "lazy";
+                            image.referrerPolicy = "no-referrer";
+                            image.addEventListener("error", () => {
+                                image.replaceWith(createFallback(markerData));
+                            }, { once: true });
+                            markerElement.appendChild(image);
+                        } else {
+                            markerElement.appendChild(createFallback(markerData));
+                        }
+                        markerElement.addEventListener("click", () => {
+                            markerElement.classList.add("pulse");
+                            window.setTimeout(() => {
+                                markerElement.classList.remove("pulse");
+                            }, 180);
+
+                            if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === "function") {
+                                window.ReactNativeWebView.postMessage(
+                                    JSON.stringify({ type: "markerClick", shopPointId: markerData.id, gembos: true })
+                                );
+                            }
+                        });
+
+                        markerAnchor.appendChild(markerElement);
+                        map.addChild(new YMapMarker({ coordinates: markerData.coordinates }, markerAnchor));
+                    });
+
+                    function createFallback(markerData) {
+                        const fallback = document.createElement("div");
+                        fallback.className = "seller-avatar-marker-fallback";
+                        fallback.textContent = getFallbackText(markerData);
+                        return fallback;
+                    }
+                } catch (error) {
+                    console.error("Ошибка инициализации карты:", error);
+                }
+            }
+
+            initMap();
+        });
+    </script>
+</body>
+</html>
