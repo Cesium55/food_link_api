@@ -28,10 +28,13 @@ from middleware.insert_session_middleware import InsertSessionMiddleware
 from middleware.timing_middleware import TimingMiddleware
 from middleware.response_wrapper_middleware import ResponseWrapperMiddleware
 from utils.image_manager import ImageManager
+from logger import get_sync_logger
 
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from database import async_engine
+
+logger = get_sync_logger(__name__)
 
 
 @asynccontextmanager
@@ -44,9 +47,6 @@ async def lifespan(app: FastAPI):
         await image_manager.initialize_bucket()
     except Exception as e:
         # Log error but don't fail startup
-        import logging
-
-        logger = logging.getLogger(__name__)
         logger.warning(f"Failed to initialize MinIO bucket: {str(e)}")
 
     yield

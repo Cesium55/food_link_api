@@ -95,7 +95,7 @@ class YooKassaClient:
             response.raise_for_status()
 
             data = response.json()
-            await logger.info(
+            logger.info(
                 f"Payment created successfully",
                 extra={
                     "payment_id": data.get("id"),
@@ -106,13 +106,13 @@ class YooKassaClient:
 
             return data
         except httpx.HTTPStatusError as e:
-            await logger.error(
+            logger.error(
                 f"Failed to create payment: {e.response.status_code}",
                 extra={"response": e.response.text},
             )
             raise
         except Exception as e:
-            await logger.error(f"Error creating payment: {str(e)}")
+            logger.error(f"Error creating payment: {str(e)}")
             raise
 
     async def get_payment(self, payment_id: str) -> Dict[str, Any]:
@@ -132,20 +132,20 @@ class YooKassaClient:
             response.raise_for_status()
 
             data = response.json()
-            await logger.info(
+            logger.info(
                 f"Payment retrieved successfully",
                 extra={"payment_id": payment_id, "status": data.get("status")},
             )
 
             return data
         except httpx.HTTPStatusError as e:
-            await logger.error(
+            logger.error(
                 f"Failed to get payment: {e.response.status_code}",
                 extra={"payment_id": payment_id, "response": e.response.text},
             )
             raise
         except Exception as e:
-            await logger.error(
+            logger.error(
                 f"Error getting payment: {str(e)}", extra={"payment_id": payment_id}
             )
             raise
@@ -176,19 +176,19 @@ class YooKassaClient:
             response.raise_for_status()
 
             data = response.json()
-            await logger.info(
+            logger.info(
                 f"Payment canceled successfully", extra={"payment_id": payment_id}
             )
 
             return data
         except httpx.HTTPStatusError as e:
-            await logger.error(
+            logger.error(
                 f"Failed to cancel payment: {e.response.status_code}",
                 extra={"payment_id": payment_id, "response": e.response.text},
             )
             raise
         except Exception as e:
-            await logger.error(
+            logger.error(
                 f"Error canceling payment: {str(e)}", extra={"payment_id": payment_id}
             )
             raise
@@ -216,7 +216,7 @@ class YooKassaClient:
             refund_data["description"] = reason
 
         # Log request
-        await logger.info(
+        logger.info(
             "Sending refund request to YooKassa",
             extra={"url": url, "request_body": refund_data},
         )
@@ -226,19 +226,19 @@ class YooKassaClient:
             response.raise_for_status()
 
             data = response.json()
-            await logger.info(
+            logger.info(
                 "Refund created successfully",
                 extra={"refund_id": data.get("id"), "payment_id": yookassa_payment_id, "amount": amount},
             )
             return data
         except httpx.HTTPStatusError as e:
-            await logger.error(
+            logger.error(
                 f"Failed to create refund: {e.response.status_code}",
                 extra={"payment_id": yookassa_payment_id, "response": e.response.text},
             )
             raise
         except Exception as e:
-            await logger.error(
+            logger.error(
                 f"Error creating refund: {str(e)}",
                 extra={"payment_id": yookassa_payment_id},
             )
@@ -262,7 +262,7 @@ class YooKassaClient:
             if len(auth_value) > 20:
                 request_headers["Authorization"] = f"{auth_value[:20]}...[masked]"
 
-        await logger.info(
+        logger.info(
             "Sending GET webhooks request",
             extra={"url": url, "method": "GET", "headers": request_headers},
         )
@@ -272,7 +272,7 @@ class YooKassaClient:
             response.raise_for_status()
 
             data = response.json()
-            await logger.info("Webhooks retrieved successfully")
+            logger.info("Webhooks retrieved successfully")
 
             return data
         except httpx.HTTPStatusError as e:
@@ -284,12 +284,12 @@ class YooKassaClient:
                 "response_text": e.response.text,
                 "response_headers": dict(e.response.headers),
             }
-            await logger.error(
+            logger.error(
                 f"Failed to get webhooks: {e.response.status_code}", extra=error_details
             )
             raise
         except Exception as e:
-            await logger.error(f"Error getting webhooks: {str(e)}")
+            logger.error(f"Error getting webhooks: {str(e)}")
             raise
 
     async def create_webhook(
@@ -324,7 +324,7 @@ class YooKassaClient:
             if len(auth_value) > 20:
                 request_headers["Authorization"] = f"{auth_value[:20]}...[masked]"
 
-        await logger.info(
+        logger.info(
             "Sending POST webhook creation request",
             extra={
                 "url": url_endpoint,
@@ -341,7 +341,7 @@ class YooKassaClient:
             response.raise_for_status()
 
             data = response.json()
-            await logger.info(
+            logger.info(
                 f"Webhook created successfully", extra={"event": event, "url": url}
             )
 
@@ -358,13 +358,13 @@ class YooKassaClient:
                 "event": event,
                 "url": url,
             }
-            await logger.error(
+            logger.error(
                 f"Failed to create webhook: {e.response.status_code}",
                 extra=error_details,
             )
             raise
         except Exception as e:
-            await logger.error(
+            logger.error(
                 f"Error creating webhook: {str(e)}", extra={"event": event, "url": url}
             )
             raise

@@ -38,7 +38,7 @@ class MasterChatWebSocketManager:
         payload = schemas.MasterChatWebSocketOutgoing(
             event="new_message",
             message=master_chat_message,
-        ).model_dump()
+        ).model_dump(mode="json")
         await self.connection_manager.broadcast(user_id, payload)
         await self.master_chat_admin_connection_manager.broadcast(
             self.MASTER_CHAT_ADMIN_CONNECTIONS_KEY, payload
@@ -50,7 +50,7 @@ class MasterChatWebSocketManager:
         payload = schemas.MasterChatWebSocketOutgoing(
             event="messages_read",
             updated_count=updated_count,
-        ).model_dump()
+        ).model_dump(mode="json")
         await self.connection_manager.broadcast(user_id, payload)
         await self.master_chat_admin_connection_manager.broadcast(
             self.MASTER_CHAT_ADMIN_CONNECTIONS_KEY,
@@ -63,7 +63,7 @@ class MasterChatWebSocketManager:
         payload = schemas.MasterChatWebSocketOutgoing(
             event="chat_updated",
             chat=master_chat,
-        ).model_dump()
+        ).model_dump(mode="json")
         await self.connection_manager.broadcast(user_id, payload)
         await self.master_chat_admin_connection_manager.broadcast(
             self.MASTER_CHAT_ADMIN_CONNECTIONS_KEY,
@@ -104,7 +104,7 @@ class MasterChatWebSocketManager:
                         updated_at=master_chat_state.updated_at,
                     ),
                     messages=master_chat_state.messages,
-                ).model_dump()
+                ).model_dump(mode="json")
             )
 
             while True:
@@ -118,13 +118,13 @@ class MasterChatWebSocketManager:
                         schemas.MasterChatWebSocketOutgoing(
                             event="error",
                             detail=str(exc),
-                        ).model_dump()
+                        ).model_dump(mode="json")
                     )
                     continue
 
                 if incoming_payload.action == "ping":
                     await websocket.send_json(
-                        schemas.MasterChatWebSocketOutgoing(event="pong").model_dump()
+                        schemas.MasterChatWebSocketOutgoing(event="pong").model_dump(mode="json")
                     )
                     continue
 

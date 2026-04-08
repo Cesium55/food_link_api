@@ -6,12 +6,12 @@ from fastapi import UploadFile, HTTPException, status
 import uuid
 from pathlib import Path
 from config import settings
-import logging
 import asyncio
 import json
+from logger import get_sync_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_sync_logger(__name__)
 
 T = TypeVar('T')
 

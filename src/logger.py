@@ -1,159 +1,147 @@
 import asyncio
-import aiofiles
-from pathlib import Path
+import atexit
+import threading
+from collections import deque
 from datetime import datetime
+from pathlib import Path
+from typing import Deque, Optional
+
 from config import settings
-from typing import Optional
 
 
-class AsyncLogger:
-    """Async logger that writes logs to file asynchronously using aiofiles"""
-    
-    def __init__(self, name: str, log_file: str):
+class Logger:
+    """File logger with a sync API and optional async background writes."""
+
+    def __init__(self, name: str, log_file: str, async_mode: bool) -> None:
         self.name = name
         self.log_file = log_file
-        self._queue = asyncio.Queue()
-        self._task = None
-        self._log_level = getattr(settings, 'log_level', 'INFO').upper()
-        
-        # Create log directory if it doesn't exist
+        self.async_mode = async_mode
+        self._log_level = getattr(settings, "log_level", "INFO").upper()
+        self._pending_lines: Deque[str] = deque()
+        self._write_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._drain_task: asyncio.Task | None = None
         Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-    
-    async def _writer(self):
-        """Async writer task that writes logs to file using aiofiles"""
-        async with aiofiles.open(self.log_file, 'a', encoding='utf-8') as f:
-            while True:
-                try:
-                    level, message, extra = await self._queue.get()
-                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    log_message = f"{timestamp} - {self.name} - {level} - {message}"
-                    if extra:
-                        log_message += f" - {extra}"
-                    log_message += "\n"
-                    await f.write(log_message)
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    print(f"Error in async logger: {e}")
-    
-    async def _log(self, level: str, message: str, extra: Optional[dict] = None):
-        """Internal logging method"""
-        if self._task is None or self._task.done():
-            loop = asyncio.get_event_loop()
-            self._task = loop.create_task(self._writer())
-        
-        extra_str = str(extra) if extra else None
-        await self._queue.put((level, message, extra_str))
-    
-    async def flush(self):
-        """Wait for all logs in queue to be written"""
-        if self._task and not self._task.done():
-            # Wait until queue is empty
-            while not self._queue.empty():
-                await asyncio.sleep(0.01)
-            # Give a bit more time for file write to complete
-            await asyncio.sleep(0.05)
-    
-    async def debug(self, message: str, extra: Optional[dict] = None):
-        """Log debug message"""
-        await self._log('DEBUG', message, extra)
-    
-    async def info(self, message: str, extra: Optional[dict] = None):
-        """Log info message"""
-        await self._log('INFO', message, extra)
-    
-    async def warning(self, message: str, extra: Optional[dict] = None):
-        """Log warning message"""
-        await self._log('WARNING', message, extra)
-    
-    async def error(self, message: str, extra: Optional[dict] = None):
-        """Log error message"""
-        await self._log('ERROR', message, extra)
-    
-    async def critical(self, message: str, extra: Optional[dict] = None):
-        """Log critical message"""
-        await self._log('CRITICAL', message, extra)
-    
-    async def close(self):
-        """Close the logger and stop the writer task"""
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
 
-
-class SyncLogger:
-    """Synchronous logger that writes logs to file immediately"""
-    
-    def __init__(self, name: str, log_file: str):
-        self.name = name
-        self.log_file = log_file
-        self._log_level = getattr(settings, 'log_level', 'INFO').upper()
-        
-        # Create log directory if it doesn't exist
-        Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-    
-    def _log(self, level: str, message: str, extra: Optional[dict] = None):
-        """Internal logging method"""
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    def _format_line(self, level: str, message: str, extra: Optional[dict] = None) -> str:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_message = f"{timestamp} - {self.name} - {level} - {message}"
         if extra:
             log_message += f" - {extra}"
-        log_message += "\n"
-        
+        return f"{log_message}\n"
+
+    def _write_line_sync(self, line: str) -> None:
         try:
-            with open(self.log_file, 'a', encoding='utf-8') as f:
-                f.write(log_message)
-        except Exception as e:
-            print(f"Error in sync logger: {e}")
-    
-    def debug(self, message: str, extra: Optional[dict] = None):
-        """Log debug message"""
-        self._log('DEBUG', message, extra)
-    
-    def info(self, message: str, extra: Optional[dict] = None):
-        """Log info message"""
-        self._log('INFO', message, extra)
-    
-    def warning(self, message: str, extra: Optional[dict] = None):
-        """Log warning message"""
-        self._log('WARNING', message, extra)
-    
-    def error(self, message: str, extra: Optional[dict] = None):
-        """Log error message"""
-        self._log('ERROR', message, extra)
-    
-    def critical(self, message: str, extra: Optional[dict] = None):
-        """Log critical message"""
-        self._log('CRITICAL', message, extra)
+            with self._write_lock:
+                with open(self.log_file, "a", encoding="utf-8") as file:
+                    file.write(line)
+        except Exception as exc:
+            print(f"Error writing log line: {exc}")
+
+    async def _drain_pending_lines(self) -> None:
+        try:
+            while True:
+                with self._state_lock:
+                    if not self._pending_lines:
+                        self._drain_task = None
+                        return
+                    line = self._pending_lines.popleft()
+                await asyncio.to_thread(self._write_line_sync, line)
+        except Exception as exc:
+            print(f"Error in async logger task: {exc}")
+            self.flush()
+            with self._state_lock:
+                self._drain_task = None
+
+    def _ensure_async_drain_task(self) -> None:
+        if not self.async_mode:
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.flush()
+            return
+
+        with self._state_lock:
+            if self._drain_task is None or self._drain_task.done():
+                self._drain_task = loop.create_task(self._drain_pending_lines())
+
+    def _log(self, level: str, message: str, extra: Optional[dict] = None) -> None:
+        line = self._format_line(level, message, extra)
+
+        if not self.async_mode:
+            self._write_line_sync(line)
+            return
+
+        with self._state_lock:
+            self._pending_lines.append(line)
+
+        self._ensure_async_drain_task()
+
+    def flush(self) -> None:
+        while True:
+            with self._state_lock:
+                if not self._pending_lines:
+                    return
+                line = self._pending_lines.popleft()
+            self._write_line_sync(line)
+
+    def close(self) -> None:
+        self.flush()
+
+    def debug(self, message: str, extra: Optional[dict] = None) -> None:
+        self._log("DEBUG", message, extra)
+
+    def info(self, message: str, extra: Optional[dict] = None) -> None:
+        self._log("INFO", message, extra)
+
+    def warning(self, message: str, extra: Optional[dict] = None) -> None:
+        self._log("WARNING", message, extra)
+
+    def error(self, message: str, extra: Optional[dict] = None) -> None:
+        self._log("ERROR", message, extra)
+
+    def critical(self, message: str, extra: Optional[dict] = None) -> None:
+        self._log("CRITICAL", message, extra)
 
 
-_loggers = {}
-_sync_loggers = {}
+_loggers: dict[str, Logger] = {}
+_sync_loggers: dict[str, Logger] = {}
 
 
-def get_logger(name: str) -> AsyncLogger:
-    """Get or create an async logger"""
+def _get_log_file() -> str:
+    return str(Path("logs") / "app.log")
+
+
+def _flush_all_loggers() -> None:
+    for logger in list(_loggers.values()):
+        logger.flush()
+    for logger in list(_sync_loggers.values()):
+        logger.flush()
+
+
+atexit.register(_flush_all_loggers)
+
+
+def get_logger(name: str) -> Logger:
+    """Get or create a logger that writes in the background when an event loop exists."""
     if name not in _loggers:
-        log_file = str(Path('logs') / 'app.log')
-        _loggers[name] = AsyncLogger(name, log_file)
+        _loggers[name] = Logger(name=name, log_file=_get_log_file(), async_mode=True)
     return _loggers[name]
 
 
-def get_sync_logger(name: str) -> SyncLogger:
-    """Get or create a sync logger"""
+def get_sync_logger(name: str) -> Logger:
+    """Get or create a logger that writes to file immediately."""
     if name not in _sync_loggers:
-        log_file = str(Path('logs') / 'app.log')
-        _sync_loggers[name] = SyncLogger(name, log_file)
+        _sync_loggers[name] = Logger(name=name, log_file=_get_log_file(), async_mode=False)
     return _sync_loggers[name]
 
 
-def hard_log(message: str, log_file: str = 'logs/app.log') -> None:
-    """Hard log function that writes directly to file using file.write without any library overhead"""
+def hard_log(message: str, log_file: str = "logs/app.log") -> None:
+    """Write directly to a log file immediately."""
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-    with open(log_file, 'a', encoding='utf-8') as f:
-        f.write(message)
-        if not message.endswith('\n'):
-            f.write('\n') 
+    with open(log_file, "a", encoding="utf-8") as file:
+        file.write(message)
+        if not message.endswith("\n"):
+            file.write("\n")

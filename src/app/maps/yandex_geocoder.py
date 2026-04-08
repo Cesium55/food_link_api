@@ -57,7 +57,7 @@ class YandexGeocoder:
         response.raise_for_status()
         
         data = response.json()
-        await logger.info(f"Geocoding response for '{address}'", extra={"data": data})
+        logger.info(f"Geocoding response for '{address}'", extra={"data": data})
         
         return self._parse_geocoder_response(data)
     
@@ -76,7 +76,7 @@ class YandexGeocoder:
         response.raise_for_status()
         
         data = response.json()
-        await logger.info(f"Reverse geocoding response for ({longitude}, {latitude})", extra={"data": data})
+        logger.info(f"Reverse geocoding response for ({longitude}, {latitude})", extra={"data": data})
         
         result = self._parse_geocoder_response(data)
         

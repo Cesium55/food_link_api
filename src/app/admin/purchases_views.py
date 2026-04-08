@@ -9,7 +9,6 @@ from app.offers.models import Offer
 from app.purchases.models import Purchase, PurchaseOffer, PurchaseOfferResult
 from app.sellers.models import Seller
 from app.products.models import Product
-from logger import hard_log
 
 
 class PurchaseAdmin(ModelView, model=purchases_models.Purchase):

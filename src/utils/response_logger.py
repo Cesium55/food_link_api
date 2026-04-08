@@ -59,7 +59,7 @@ def log_response(
         - Декоратор должен быть применен ПОСЛЕ декоратора @router.* (ближе к функции)
         - Если include_request_body=True, тело запроса может быть недоступно,
           если оно уже было прочитано FastAPI для Pydantic моделей
-        - Все логи записываются в файл через AsyncLogger (logs/app.log)
+        - Все логи записываются в файл `logs/app.log`
         - Логируются успешные ответы и ошибки (HTTPException и другие исключения)
     """
     exclude_paths = exclude_paths or []
@@ -187,7 +187,7 @@ def log_response(
                 )
                 
                 log_method = getattr(logger, log_level.lower(), logger.info)
-                await log_method(log_message, log_data)
+                log_method(log_message, log_data)
                 
                 raise
                 
@@ -219,7 +219,7 @@ def log_response(
                 )
                 
                 log_method = getattr(logger, "error", logger.error)
-                await log_method(log_message, log_data)
+                log_method(log_message, log_data)
                 
                 raise
             
@@ -267,11 +267,10 @@ def log_response(
             )
             
             log_method = getattr(logger, log_level.lower(), logger.info)
-            await log_method(log_message, log_data)
+            log_method(log_message, log_data)
             
             return response_data
         
         return wrapper
     
     return decorator
-

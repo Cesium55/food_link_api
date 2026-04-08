@@ -9,9 +9,10 @@ from app.auth.models import User
 from app.sellers.models import Seller
 from utils.response_logger import log_response
 from utils.pagination import PaginatedResponse
-from utils.debug_logger import hard_log
+from logger import get_sync_logger
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
+logger = get_sync_logger(__name__)
 
 # Initialize manager
 purchases_manager = PurchasesManager()
@@ -30,12 +31,18 @@ async def create_purchase(
     Validates availability, checks expiration dates, reserves items, and calculates total cost.
     If an offer has insufficient quantity, it will be added with available quantity.
     """
-    hard_log(f"POST /purchases START - user_id={current_user.id}, offers={len(purchase_data.offers)}", "ROUTES")
+    logger.info(
+        f"POST /purchases START - user_id={current_user.id}, offers={len(purchase_data.offers)}",
+        extra={"stage": "ROUTES"},
+    )
     base_url = f"{request.url.scheme}://{request.url.netloc}"
     result = await purchases_manager.create_purchase_with_partial_success(
         request.state.session, current_user.id, purchase_data, base_url
     )
-    hard_log(f"POST /purchases COMPLETE - purchase_id={result.purchase.id}", "ROUTES")
+    logger.info(
+        f"POST /purchases COMPLETE - purchase_id={result.purchase.id}",
+        extra={"stage": "ROUTES"},
+    )
     return result.purchase
 
 
