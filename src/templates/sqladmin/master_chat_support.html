@@ -18,7 +18,13 @@
 
     <section class="master-chat-main">
       <header class="master-chat-main-header">
-        <div id="master-chat-selected-user">Выберите чат</div>
+        <div class="master-chat-main-header-title">
+          <div id="master-chat-selected-user">Выберите чат</div>
+          <div id="master-chat-ws-status" class="master-chat-ws-status connecting">
+            <span class="master-chat-ws-status-dot" aria-hidden="true"></span>
+            <span id="master-chat-ws-status-text">Подключение...</span>
+          </div>
+        </div>
         <button id="master-chat-close-btn" class="master-chat-close-btn" type="button" disabled>
           Закрыть чат
         </button>
@@ -179,10 +185,49 @@
     background: #f9fcff;
   }
 
+  .master-chat-main-header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
   #master-chat-selected-user {
     font-size: 15px;
     font-weight: 600;
     color: #1b2d46;
+  }
+
+  .master-chat-ws-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #61758d;
+  }
+
+  .master-chat-ws-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #f0b429;
+    box-shadow: 0 0 0 2px rgba(240, 180, 41, 0.18);
+    flex: 0 0 auto;
+  }
+
+  .master-chat-ws-status.disconnected .master-chat-ws-status-dot {
+    background: #d64545;
+    box-shadow: 0 0 0 2px rgba(214, 69, 69, 0.18);
+  }
+
+  .master-chat-ws-status.connecting .master-chat-ws-status-dot {
+    background: #f0b429;
+    box-shadow: 0 0 0 2px rgba(240, 180, 41, 0.18);
+  }
+
+  .master-chat-ws-status.connected .master-chat-ws-status-dot {
+    background: #2ea44f;
+    box-shadow: 0 0 0 2px rgba(46, 164, 79, 0.18);
   }
 
   .master-chat-close-btn {
@@ -315,7 +360,30 @@
     totalPages: 1,
     chats: [],
     websocket: null,
+    wsStatus: "connecting",
   };
+
+  function masterChatSetWebSocketStatus(status) {
+    MasterChatState.wsStatus = status;
+    const statusNode = document.getElementById("master-chat-ws-status");
+    const statusTextNode = document.getElementById("master-chat-ws-status-text");
+    if (!statusNode || !statusTextNode) {
+      return;
+    }
+
+    statusNode.classList.remove("disconnected", "connecting", "connected");
+    statusNode.classList.add(status);
+
+    if (status === "connected") {
+      statusTextNode.textContent = "Подключено";
+      return;
+    }
+    if (status === "disconnected") {
+      statusTextNode.textContent = "Нет подключения";
+      return;
+    }
+    statusTextNode.textContent = "Подключение...";
+  }
 
   function masterChatUnwrapData(payload) {
     if (payload && typeof payload === "object" && Object.prototype.hasOwnProperty.call(payload, "data")) {
@@ -514,9 +582,14 @@
   }
 
   function masterChatInitWebSocket() {
+    masterChatSetWebSocketStatus("connecting");
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/support/master-chat/admin/ws`;
     MasterChatState.websocket = new WebSocket(wsUrl);
+
+    MasterChatState.websocket.addEventListener("open", () => {
+      masterChatSetWebSocketStatus("connected");
+    });
 
     MasterChatState.websocket.addEventListener("message", async (event) => {
       let payload;
@@ -544,7 +617,12 @@
     });
 
     MasterChatState.websocket.addEventListener("close", () => {
+      masterChatSetWebSocketStatus("disconnected");
       window.setTimeout(masterChatInitWebSocket, 2000);
+    });
+
+    MasterChatState.websocket.addEventListener("error", () => {
+      masterChatSetWebSocketStatus("disconnected");
     });
   }
 
