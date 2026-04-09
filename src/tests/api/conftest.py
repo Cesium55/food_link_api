@@ -129,13 +129,11 @@ async def client(override_get_async_session):
 
 @pytest.fixture(scope="session", autouse=True)
 def mock_loggers():
-    """Mock all loggers to prevent async event loop issues in tests"""
+    """Mock logger factory globally for tests."""
     mock_log = MagicMock()
-    mock_sync_log = MagicMock()
     
-    # Patch logger factory functions - this will cover all logger usage
-    with patch('logger.get_logger', return_value=mock_log), \
-         patch('logger.get_sync_logger', return_value=mock_sync_log):
+    # Patch logger factory function - this will cover all logger usage
+    with patch('logger.get_logger', return_value=mock_log):
         yield
 
 
@@ -199,12 +197,6 @@ def mock_image_manager_init():
 
 def pytest_sessionfinish(session, exitstatus):
     try:
-        for logger_instance in list(logger._loggers.values()):
-            if hasattr(logger_instance, '_task') and logger_instance._task and not logger_instance._task.done():
-                try:
-                    logger_instance._task.cancel()
-                except Exception:
-                    pass
         logger._loggers.clear()
     except Exception:
         pass

@@ -2,9 +2,9 @@ import redis.asyncio as aioredis
 from typing import Optional
 from urllib.parse import urlparse
 from config import settings
-from logger import get_sync_logger
+from logger import get_logger
 
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 _redis_client: Optional[aioredis.Redis] = None
 

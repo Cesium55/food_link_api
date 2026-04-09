@@ -2,11 +2,11 @@ from fastapi import Request
 from fastapi.responses import RedirectResponse
 from markupsafe import Markup
 
-from logger import get_sync_logger
+from logger import get_logger
 from utils.yookassa_client import create_yookassa_client
 
 yookassa_client = create_yookassa_client()
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 
 def action_auto_returner(func):

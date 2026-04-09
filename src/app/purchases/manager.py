@@ -25,9 +25,9 @@ from app.auth.jwt_utils import JWTUtils
 from app.payments import schemas as payment_schemas
 from app.payments.models import PaymentStatus
 from utils.pagination import PaginatedResponse
-from logger import get_sync_logger
+from logger import get_logger
 
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 
 class PurchasesManager:
@@ -719,7 +719,7 @@ class PurchasesManager:
         self, session: AsyncSession, purchase_id: int
     ) -> None:
         """Send notifications to sellers whose items were reserved in purchase"""
-        logger = get_sync_logger(__name__)
+        logger = get_logger(__name__)
         
         try:
             # Get purchase offers

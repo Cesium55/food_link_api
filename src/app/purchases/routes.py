@@ -9,10 +9,10 @@ from app.auth.models import User
 from app.sellers.models import Seller
 from utils.response_logger import log_response
 from utils.pagination import PaginatedResponse
-from logger import get_sync_logger
+from logger import get_logger
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 # Initialize manager
 purchases_manager = PurchasesManager()

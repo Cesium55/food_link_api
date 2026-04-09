@@ -28,13 +28,13 @@ from middleware.insert_session_middleware import InsertSessionMiddleware
 from middleware.timing_middleware import TimingMiddleware
 from middleware.response_wrapper_middleware import ResponseWrapperMiddleware
 from utils.image_manager import ImageManager
-from logger import get_sync_logger
+from logger import get_logger
 
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from database import async_engine
 
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -120,6 +120,20 @@ for v in admin_views:
 @app.get("/")
 def index():
     return {"message": "Hello, World!"}
+
+
+@app.get("/health")
+async def health_check():
+    """Basic healthcheck with S3 connectivity flag."""
+    image_manager = ImageManager()
+    s3_connected = True
+    try:
+        await image_manager.check_connection()
+    except Exception as e:
+        logger.warning(f"Healthcheck failed: {str(e)}")
+        s3_connected = False
+
+    return {"status": "ok", "s3_connected": s3_connected}
 
 
 @app.get("/public-key")

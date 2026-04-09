@@ -2,7 +2,7 @@ from typing import List
 from fastapi import APIRouter, Request, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from logger import get_sync_logger
+from logger import get_logger
 from app.payments import schemas
 from app.payments.manager import PaymentsManager
 from utils.auth_dependencies import get_current_user
@@ -44,7 +44,7 @@ async def handle_webhook(
     YooKassa webhook endpoint for payment status updates.
     Returns empty dict to avoid middleware wrapping.
     """
-    logger = get_sync_logger(__name__)
+    logger = get_logger(__name__)
     
     try:
         logger.info(

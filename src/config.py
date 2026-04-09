@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+from pydantic import Field
+
 
 
 class Settings(BaseSettings):
@@ -93,6 +95,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="allow",
+        secrets_dir="/run/secrets"
     )
 
 

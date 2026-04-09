@@ -8,10 +8,10 @@ from pathlib import Path
 from config import settings
 import asyncio
 import json
-from logger import get_sync_logger
+from logger import get_logger
 
 
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 T = TypeVar('T')
 
@@ -27,6 +27,7 @@ class ImageManager:
     @property
     def s3_client(self):
         """Lazy initialization of S3 client"""
+        logger.info(f"initializing s3 client. Endpoint {repr(settings.s3_endpoint_url)}")
         if self._s3_client is None:
             self._s3_client = boto3.client(
                 's3',
@@ -100,6 +101,17 @@ class ImageManager:
         
         # Set public policy (synchronous operation)
         self._set_bucket_public_policy()
+
+    async def check_connection(self) -> None:
+        """Check connectivity and access to configured S3 bucket."""
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: self.s3_client.head_bucket(Bucket=self.bucket_name),
+            )
+        except Exception as e:
+            raise Exception(f"S3 healthcheck failed: {str(e)}") from e
 
     def _generate_file_path(self, prefix: str, filename: str) -> str:
         """Generate unique file path for S3"""

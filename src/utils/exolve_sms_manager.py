@@ -3,10 +3,10 @@ import random
 import string
 import httpx
 from typing import Optional
-from logger import get_sync_logger
+from logger import get_logger
 from config import settings
 
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 
 class ExolveSMSManager:

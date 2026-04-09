@@ -4,11 +4,11 @@ import binascii
 import json
 import firebase_admin
 from firebase_admin import credentials, messaging
-from logger import get_sync_logger
+from logger import get_logger
 from pathlib import Path
 from config import settings
 
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 # Initialize Firebase Admin SDK (singleton pattern)
 _firebase_app: Optional[firebase_admin.App] = None

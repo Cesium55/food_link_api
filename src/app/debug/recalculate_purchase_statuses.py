@@ -8,9 +8,9 @@ from sqlalchemy import select, and_
 
 from app.purchases.models import Purchase, PurchaseOffer, PurchaseStatus
 from app.purchases.service import PurchasesService
-from logger import get_sync_logger
+from logger import get_logger
 
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 
 async def recalculate_purchase_statuses(

@@ -4,7 +4,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, func, select
 from fastapi import HTTPException, status
-from logger import get_sync_logger
+from logger import get_logger
 
 from app.payments import schemas
 from app.payments.service import PaymentsService
@@ -601,7 +601,7 @@ class PaymentsManager:
         webhook_data: schemas.PaymentWebhook,
     ) -> None:
         """Handle YooKassa webhook event"""
-        logger = get_sync_logger(__name__)
+        logger = get_logger(__name__)
         
         try:
             logger.info(
@@ -690,7 +690,7 @@ class PaymentsManager:
 
     async def _extract_yookassa_payment_id(self, webhook_data: schemas.PaymentWebhook) -> str:
         """Extract YooKassa payment ID from webhook data"""
-        logger = get_sync_logger(__name__)
+        logger = get_logger(__name__)
         
         if not webhook_data.object:
             logger.error(
@@ -722,7 +722,7 @@ class PaymentsManager:
         self, session: AsyncSession, yookassa_payment_id: str
     ) -> UserPayment:
         """Get payment by YooKassa payment ID or raise exception (with FOR UPDATE lock)"""
-        logger = get_sync_logger(__name__)
+        logger = get_logger(__name__)
         
         payment = await self.service.get_payment_by_yookassa_id_for_update(session, yookassa_payment_id)
         if not payment:
@@ -743,7 +743,7 @@ class PaymentsManager:
         self, session: AsyncSession, user_id: int, payment_id: int
     ) -> None:
         """Send push notification to user about successful payment"""
-        logger = get_sync_logger(__name__)
+        logger = get_logger(__name__)
         
         try:
             user = await self.auth_service.get_user(session, user_id)
@@ -784,7 +784,7 @@ class PaymentsManager:
         self, session: AsyncSession, purchase_id: int, payment_id: int
     ) -> None:
         """Send notifications to sellers whose items were paid"""
-        logger = get_sync_logger(__name__)
+        logger = get_logger(__name__)
         
         try:
             # Get purchase offers

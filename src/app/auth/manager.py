@@ -17,10 +17,10 @@ from utils.redis.refresh_tokens import (
     wait_for_rotated_tokens,
 )
 from config import settings
-from logger import get_sync_logger
+from logger import get_logger
 from utils.tg_gateway_manager import TelegramGatewayClient
 
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 # Common exceptions
 INVALID_CREDENTIALS = HTTPException(

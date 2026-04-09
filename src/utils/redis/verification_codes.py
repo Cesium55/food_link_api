@@ -1,9 +1,9 @@
 import re
 from typing import Optional
 from utils.redis.client import get_redis_client
-from logger import get_sync_logger
+from logger import get_logger
 
-logger = get_sync_logger(__name__)
+logger = get_logger(__name__)
 
 
 def _format_phone_number(phone: str) -> str:

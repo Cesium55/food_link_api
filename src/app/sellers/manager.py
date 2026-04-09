@@ -343,8 +343,8 @@ class SellersManager:
         data: Optional[dict] = None
     ) -> None:
         """Send push notification to seller"""
-        from logger import get_sync_logger
-        logger = get_sync_logger(__name__)
+        from logger import get_logger
+        logger = get_logger(__name__)
         
         try:
             seller = await self.service.get_seller_by_id(session, seller_id)
