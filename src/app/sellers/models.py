@@ -5,9 +5,9 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models import Base, ImageMixin
+from app.auth.models import User
 
 if TYPE_CHECKING:
-    from app.auth.models import User
     from app.shop_points.models import ShopPoint
     from app.products.models import Product
 
@@ -100,4 +100,4 @@ class SellerRegistrationRequest(Base):
         ),
     )
 
-    user: Mapped["User"] = relationship("User")
+    user: Mapped["User"] = relationship(User)

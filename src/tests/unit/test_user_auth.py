@@ -352,18 +352,16 @@ class TestAuthManager:
         auth_manager.service.get_user_by_phone = AsyncMock(return_value=None)
         auth_manager.service.create_user = AsyncMock(return_value=mock_user_with_phone_only)
         mock_refresh_token = setup_token_creation_mocks(auth_manager)
-        
-        with patch('app.auth.manager.create_exolve_sms_manager') as mock_sms:
-            mock_sms_manager = setup_sms_manager_mocks()
-            mock_sms.return_value = mock_sms_manager
-            
-            with patch('app.auth.manager.store_verification_code'):
-                user_data = create_user_registration(phone=TEST_PHONE)
-                result = await auth_manager.register_user(mock_session, user_data)
-                
-                assert result is not None
-                assert result.access_token == "access_token"
-                mock_session.commit.assert_called_once()
+
+        auth_manager._generate_phone_verification_code = AsyncMock(return_value="1234")
+        with patch('app.auth.manager.store_verification_code', new=AsyncMock()) as mock_store_code:
+            user_data = create_user_registration(phone=TEST_PHONE)
+            result = await auth_manager.register_user(mock_session, user_data)
+
+            assert result is not None
+            assert result.access_token == "access_token"
+            mock_store_code.assert_awaited_once()
+            mock_session.commit.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_register_user_email_already_exists(self, auth_manager, mock_session, mock_user, mock_settings_enabled):
@@ -456,55 +454,72 @@ class TestAuthManager:
     async def test_refresh_tokens_success(self, auth_manager, mock_session, mock_user, mock_refresh_token):
         """Test successful token refresh"""
         mock_refresh_token.expires_at = datetime.now() + timedelta(days=1)
-        auth_manager.service.get_refresh_token = AsyncMock(return_value=mock_refresh_token)
+        auth_manager.service.consume_refresh_token = AsyncMock(return_value=mock_refresh_token)
         auth_manager.service.get_user = AsyncMock(return_value=mock_user)
-        auth_manager.service.revoke_refresh_token = AsyncMock()
         new_refresh_token = setup_token_creation_mocks(auth_manager, "new_access_token")
-        
-        refresh_data = schemas.RefreshTokenRequest(refresh_token=str(mock_refresh_token.token))
-        result = await auth_manager.refresh_tokens(mock_session, refresh_data)
-        
-        assert result is not None
-        assert result.access_token == "new_access_token"
-        assert result.refresh_token == str(new_refresh_token.token)
-        auth_manager.service.revoke_refresh_token.assert_called_once()
-        mock_session.commit.assert_called_once()
+
+        with patch('app.auth.manager.get_rotated_tokens', new=AsyncMock(side_effect=[None, None])):
+            with patch('app.auth.manager.acquire_refresh_lock', new=AsyncMock(return_value=True)):
+                with patch('app.auth.manager.store_rotated_tokens', new=AsyncMock()) as mock_store_rotated:
+                    with patch('app.auth.manager.release_refresh_lock', new=AsyncMock()) as mock_release_lock:
+                        refresh_data = schemas.RefreshTokenRequest(refresh_token=str(mock_refresh_token.token))
+                        result = await auth_manager.refresh_tokens(mock_session, refresh_data)
+
+                        assert result is not None
+                        assert result.access_token == "new_access_token"
+                        assert result.refresh_token == str(new_refresh_token.token)
+                        auth_manager.service.consume_refresh_token.assert_awaited_once()
+                        mock_store_rotated.assert_awaited_once()
+                        mock_release_lock.assert_awaited_once()
+                        mock_session.commit.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_refresh_tokens_invalid_token(self, auth_manager, mock_session):
         """Test refresh with invalid token"""
-        auth_manager.service.get_refresh_token = AsyncMock(return_value=None)
-        refresh_data = schemas.RefreshTokenRequest(refresh_token="invalid_token")
-        
-        with pytest.raises(HTTPException) as exc_info:
-            await auth_manager.refresh_tokens(mock_session, refresh_data)
-        
-        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+        auth_manager.service.consume_refresh_token = AsyncMock(return_value=None)
+
+        with patch('app.auth.manager.get_rotated_tokens', new=AsyncMock(side_effect=[None, None])):
+            with patch('app.auth.manager.acquire_refresh_lock', new=AsyncMock(return_value=True)):
+                with patch('app.auth.manager.release_refresh_lock', new=AsyncMock()) as mock_release_lock:
+                    refresh_data = schemas.RefreshTokenRequest(refresh_token="invalid_token")
+
+                    with pytest.raises(HTTPException) as exc_info:
+                        await auth_manager.refresh_tokens(mock_session, refresh_data)
+
+                    assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+                    mock_release_lock.assert_awaited_once()
     
     @pytest.mark.asyncio
     async def test_refresh_tokens_expired_token(self, auth_manager, mock_session, mock_refresh_token):
         """Test refresh with expired token"""
-        mock_refresh_token.expires_at = datetime.now() - timedelta(days=1)
-        auth_manager.service.get_refresh_token = AsyncMock(return_value=mock_refresh_token)
-        refresh_data = schemas.RefreshTokenRequest(refresh_token=str(mock_refresh_token.token))
-        
-        with pytest.raises(HTTPException) as exc_info:
-            await auth_manager.refresh_tokens(mock_session, refresh_data)
-        
-        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+        auth_manager.service.consume_refresh_token = AsyncMock(return_value=None)
+
+        with patch('app.auth.manager.get_rotated_tokens', new=AsyncMock(side_effect=[None, None])):
+            with patch('app.auth.manager.acquire_refresh_lock', new=AsyncMock(return_value=True)):
+                with patch('app.auth.manager.release_refresh_lock', new=AsyncMock()) as mock_release_lock:
+                    refresh_data = schemas.RefreshTokenRequest(refresh_token=str(mock_refresh_token.token))
+
+                    with pytest.raises(HTTPException) as exc_info:
+                        await auth_manager.refresh_tokens(mock_session, refresh_data)
+
+                    assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+                    mock_release_lock.assert_awaited_once()
     
     @pytest.mark.asyncio
     async def test_refresh_tokens_revoked_token(self, auth_manager, mock_session, mock_refresh_token):
         """Test refresh with revoked token"""
-        mock_refresh_token.expires_at = datetime.now() + timedelta(days=1)
-        mock_refresh_token.is_revoked = True
-        auth_manager.service.get_refresh_token = AsyncMock(return_value=mock_refresh_token)
-        refresh_data = schemas.RefreshTokenRequest(refresh_token=str(mock_refresh_token.token))
-        
-        with pytest.raises(HTTPException) as exc_info:
-            await auth_manager.refresh_tokens(mock_session, refresh_data)
-        
-        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+        auth_manager.service.consume_refresh_token = AsyncMock(return_value=None)
+
+        with patch('app.auth.manager.get_rotated_tokens', new=AsyncMock(side_effect=[None, None])):
+            with patch('app.auth.manager.acquire_refresh_lock', new=AsyncMock(return_value=True)):
+                with patch('app.auth.manager.release_refresh_lock', new=AsyncMock()) as mock_release_lock:
+                    refresh_data = schemas.RefreshTokenRequest(refresh_token=str(mock_refresh_token.token))
+
+                    with pytest.raises(HTTPException) as exc_info:
+                        await auth_manager.refresh_tokens(mock_session, refresh_data)
+
+                    assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+                    mock_release_lock.assert_awaited_once()
     
     @pytest.mark.asyncio
     async def test_get_current_user_by_token_success(self, auth_manager, mock_session, mock_user):
@@ -597,18 +612,15 @@ class TestAuthManager:
             mock_settings.auth_enable_phone = True
             auth_manager.service.get_user = AsyncMock(return_value=mock_user)
             auth_manager._format_phone_number = Mock(return_value=TEST_PHONE)
-            
-            with patch('app.auth.manager.create_exolve_sms_manager') as mock_sms:
-                mock_sms_manager = setup_sms_manager_mocks()
-                mock_sms.return_value = mock_sms_manager
-                
-                with patch('app.auth.manager.store_verification_code'):
-                    result = await auth_manager.resend_phone_verification_code(mock_session, TEST_USER_ID)
-                    
-                    assert result is not None
-                    assert "message" in result
-                    assert result["phone"] == TEST_PHONE
-                    mock_sms_manager.send_verification_code.assert_called_once()
+
+            auth_manager._generate_phone_verification_code = AsyncMock(return_value="1234")
+            with patch('app.auth.manager.store_verification_code', new=AsyncMock()) as mock_store_code:
+                result = await auth_manager.resend_phone_verification_code(mock_session, TEST_USER_ID)
+
+                assert result is not None
+                assert "message" in result
+                assert result["phone"] == TEST_PHONE
+                mock_store_code.assert_awaited_once()
     
     @pytest.mark.asyncio
     async def test_resend_phone_verification_code_user_not_found(self, auth_manager, mock_session):

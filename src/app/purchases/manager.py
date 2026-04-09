@@ -431,13 +431,15 @@ class PurchasesManager:
         
         # Schedule Celery task to check purchase expiration
         try:
+            logger.info("Creating celeru task")
             check_purchase_expiration.apply_async(
                 args=[purchase.id],
                 countdown=settings.purchase_expiration_seconds
             )
+            logger.info("Celery task created")
         except Exception as e:
             # Log error but don't fail the purchase creation
-            print(f"Warning: Failed to schedule Celery task for purchase {purchase.id}: {e}")
+            logger.warning(f"Failed to schedule Celery task for purchase {purchase.id}: {e}")
         
         # Reload offers to get updated reserved_count values for response
         updated_offers = await self.offers_service.get_offers_by_ids(session, successful_offer_ids)
