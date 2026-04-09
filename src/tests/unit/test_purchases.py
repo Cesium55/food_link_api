@@ -120,6 +120,7 @@ def mock_purchase_offer():
             self.cost_at_purchase = TEST_COST_PER_ITEM
             self.fulfillment_status = None
             self.fulfilled_quantity = None
+            self.fulfilled_at = None
             self.fulfilled_by_seller_id = None
             self.unfulfilled_reason = None
     
@@ -137,6 +138,9 @@ def mock_purchase_offer_result():
     result.requested_quantity = TEST_QUANTITY
     result.processed_quantity = TEST_QUANTITY
     result.available_quantity = None
+    result.refund_id = None
+    result.refunded_quantity = 0
+    result.money_flow_status = "in_system"
     result.message = f"Successfully processed {TEST_QUANTITY} items for offer {TEST_OFFER_ID}"
     return result
 
@@ -393,15 +397,17 @@ class TestPurchasesService:
         mock_purchase_ids_result.all.return_value = [(TEST_PURCHASE_ID,)]
         mock_purchases_result = create_mock_scalars_result([mock_purchase])
         mock_purchase_offers_result = create_mock_scalars_result([mock_purchase_offer])
+        mock_offer_results_result = create_mock_scalars_result([])
 
         mock_session.execute.side_effect = [
             mock_count_result,
             mock_purchase_ids_result,
             mock_purchases_result,
             mock_purchase_offers_result,
+            mock_offer_results_result,
         ]
 
-        purchases, total_count, purchase_offers_map = await purchases_service.get_seller_purchases_paginated(
+        purchases, total_count, purchase_offers_map, offer_results_map = await purchases_service.get_seller_purchases_paginated(
             session=mock_session,
             seller_id=TEST_SELLER_ID,
             page=1,
@@ -415,6 +421,7 @@ class TestPurchasesService:
         assert purchases[0].id == TEST_PURCHASE_ID
         assert TEST_PURCHASE_ID in purchase_offers_map
         assert len(purchase_offers_map[TEST_PURCHASE_ID]) == 1
+        assert offer_results_map == {}
 
     @pytest.mark.asyncio
     async def test_get_seller_purchases_paginated_empty_page(
@@ -430,7 +437,7 @@ class TestPurchasesService:
             mock_purchase_ids_result,
         ]
 
-        purchases, total_count, purchase_offers_map = await purchases_service.get_seller_purchases_paginated(
+        purchases, total_count, purchase_offers_map, offer_results_map = await purchases_service.get_seller_purchases_paginated(
             session=mock_session,
             seller_id=TEST_SELLER_ID,
             page=1,
@@ -440,6 +447,7 @@ class TestPurchasesService:
         assert total_count == 0
         assert purchases == []
         assert purchase_offers_map == {}
+        assert offer_results_map == {}
 
     @pytest.mark.asyncio
     async def test_get_pending_purchase_by_user_found(
@@ -735,7 +743,7 @@ class TestPurchasesManager:
         """Test getting seller purchases with purchase items."""
         mock_purchase_offer.offer = mock_offer
         purchases_manager.service.get_seller_purchases_paginated = AsyncMock(
-            return_value=([mock_purchase], 1, {TEST_PURCHASE_ID: [mock_purchase_offer]})
+            return_value=([mock_purchase], 1, {TEST_PURCHASE_ID: [mock_purchase_offer]}, {})
         )
 
         result = await purchases_manager.get_seller_purchases_paginated(
@@ -960,7 +968,7 @@ class TestPurchasesManager:
 
     @pytest.mark.asyncio
     async def test_verify_purchase_token_success(
-        self, purchases_manager, mock_session, mock_purchase, mock_payment, mock_purchase_offer, mock_offer
+        self, purchases_manager, mock_session, mock_purchase, mock_payment, mock_purchase_offer, mock_offer, mock_purchase_offer_result
     ):
         """Test verifying purchase token - success"""
         payload = {"order_id": TEST_PURCHASE_ID}
@@ -971,6 +979,9 @@ class TestPurchasesManager:
         )
         purchases_manager.service.get_purchase_offers_by_seller_and_purchase = AsyncMock(
             return_value=[mock_purchase_offer]
+        )
+        purchases_manager.service.get_purchase_offer_results_by_purchase_ids_and_offer_ids = AsyncMock(
+            return_value=[mock_purchase_offer_result]
         )
         mock_purchase_offer.offer = mock_offer
         # mock_offer already has product from fixture
@@ -1278,7 +1289,7 @@ class TestPurchasesManager:
 
     @pytest.mark.asyncio
     async def test_fulfill_order_items_success(
-        self, purchases_manager, mock_session, mock_purchase, mock_payment, mock_purchase_offer, mock_offer
+        self, purchases_manager, mock_session, mock_purchase, mock_payment, mock_purchase_offer, mock_offer, mock_purchase_offer_result
     ):
         """Test fulfilling order items - success"""
         fulfillment_data = schemas.OrderFulfillmentRequest(
@@ -1295,6 +1306,9 @@ class TestPurchasesManager:
         purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=mock_purchase)
         purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
             return_value=mock_payment
+        )
+        purchases_manager.service.get_purchase_offer_results_by_purchase_and_offer_ids_for_update = AsyncMock(
+            return_value=[mock_purchase_offer_result]
         )
         
         # Mock shop points query
@@ -1407,6 +1421,9 @@ class TestPurchasesManager:
         purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
             return_value=mock_payment
         )
+        purchases_manager.service.get_purchase_offer_results_by_purchase_and_offer_ids_for_update = AsyncMock(
+            return_value=[]
+        )
         
         # Mock shop points query
         mock_shop_point_result = Mock()
@@ -1453,6 +1470,9 @@ class TestPurchasesManager:
         purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
             return_value=mock_payment
         )
+        purchases_manager.service.get_purchase_offer_results_by_purchase_and_offer_ids_for_update = AsyncMock(
+            return_value=[]
+        )
         
         # Mock shop points query
         mock_shop_point_result = Mock()
@@ -1485,7 +1505,7 @@ class TestPurchasesManager:
 
     @pytest.mark.asyncio
     async def test_fulfill_order_items_exceeds_quantity(
-        self, purchases_manager, mock_session, mock_purchase, mock_payment, mock_purchase_offer
+        self, purchases_manager, mock_session, mock_purchase, mock_payment, mock_purchase_offer, mock_purchase_offer_result
     ):
         """Test fulfilling order items - fulfilled quantity exceeds requested"""
         fulfillment_data = schemas.OrderFulfillmentRequest(
@@ -1502,6 +1522,9 @@ class TestPurchasesManager:
         purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=mock_purchase)
         purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
             return_value=mock_payment
+        )
+        purchases_manager.service.get_purchase_offer_results_by_purchase_and_offer_ids_for_update = AsyncMock(
+            return_value=[mock_purchase_offer_result]
         )
         
         # Mock shop points query

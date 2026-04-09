@@ -12,11 +12,6 @@ from app.product_categories import schemas
 from app.products.models import Product
 from app.products.service import ProductsService
 from app.offers.service import OffersService
-from app.auth import models as _auth_models  # noqa: F401
-from app.sellers import models as _sellers_models  # noqa: F401
-from app.purchases import models as _purchases_models  # noqa: F401
-from app.payments import models as _payments_models  # noqa: F401
-from app.offers import models as _offers_models  # noqa: F401
 
 
 # Constants

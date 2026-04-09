@@ -25,6 +25,7 @@ TEST_MESSAGE_ID = 10
 def mock_session():
     session = AsyncMock()
     session.execute = AsyncMock()
+    session.get_bind = Mock(return_value=None)
     return session
 
 
@@ -147,14 +148,21 @@ class TestSupportService:
     @pytest.mark.asyncio
     async def test_create_master_chat_message(self, support_service, mock_session):
         master_chat_message = create_master_chat_message()
-        mock_session.execute.return_value = create_mock_execute_result(master_chat_message)
+        pg_bind = Mock()
+        pg_bind.dialect = Mock()
+        pg_bind.dialect.name = "postgresql"
+        mock_session.get_bind = Mock(return_value=pg_bind)
+        mock_session.execute.side_effect = [
+            Mock(),  # pg upsert for master chat
+            create_mock_execute_result(master_chat_message),
+        ]
 
         result = await support_service.create_master_chat_message(
             mock_session, TEST_USER_ID, "user", "hello"
         )
 
         assert result is master_chat_message
-        mock_session.execute.assert_called_once()
+        assert mock_session.execute.call_count == 2
 
     @pytest.mark.asyncio
     async def test_get_master_chat_messages_reversed(self, support_service, mock_session):
@@ -244,10 +252,9 @@ class TestSupportManager:
 
     @pytest.mark.asyncio
     async def test_create_master_chat_message_creates_chat_if_missing(self, support_manager, mock_session):
-        open_chat = create_master_chat(is_closed=False)
         created_message = create_master_chat_message(message_text="hello")
-        support_manager.service.get_master_chat_by_user_id = AsyncMock(side_effect=[None, open_chat])
-        support_manager.service.create_master_chat = AsyncMock(return_value=open_chat)
+        support_manager.service.get_master_chat_by_user_id = AsyncMock(return_value=None)
+        support_manager.service.create_master_chat = AsyncMock()
         support_manager.service.create_master_chat_message = AsyncMock(return_value=created_message)
 
         result = await support_manager.create_master_chat_message(
@@ -258,9 +265,7 @@ class TestSupportManager:
         )
 
         assert isinstance(result, schemas.MasterChatMessage)
-        support_manager.service.create_master_chat.assert_called_once_with(
-            mock_session, TEST_USER_ID
-        )
+        support_manager.service.create_master_chat.assert_not_called()
         support_manager.service.create_master_chat_message.assert_called_once_with(
             session=mock_session,
             user_id=TEST_USER_ID,
