@@ -43,4 +43,3 @@ class RefreshToken(Base):
     expires_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-

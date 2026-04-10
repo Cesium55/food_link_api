@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, TYPE_CHECKING
 from enum import Enum as PyEnum
@@ -64,10 +64,10 @@ class UserPayment(Base):
         JSON, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=datetime.now
+        TIMESTAMP(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now
+        TIMESTAMP(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     __table_args__ = (
@@ -108,10 +108,10 @@ class UserRefund(Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="RUB")
     reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=datetime.now
+        TIMESTAMP(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now
+        TIMESTAMP(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     payment: Mapped["UserPayment"] = relationship("UserPayment", back_populates="refunds")

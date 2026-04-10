@@ -4,12 +4,20 @@ import httpx
 from typing import Optional, Dict, Any
 from logger import get_logger
 from config import settings
+from metrics.external_service import create_service_metrics
 
 logger = get_logger(__name__)
 
 
+
+method_time_metrics = create_service_metrics("yookassa")
+
+
 class YooKassaClient:
     """Client for YooKassa API v3"""
+
+
+
 
     def __init__(
         self,
@@ -45,6 +53,7 @@ class YooKassaClient:
             },
         )
 
+    @method_time_metrics("create_payment")
     async def create_payment(
         self,
         amount: float,
@@ -115,6 +124,7 @@ class YooKassaClient:
             logger.error(f"Error creating payment: {str(e)}")
             raise
 
+    @method_time_metrics("get_payment")
     async def get_payment(self, payment_id: str) -> Dict[str, Any]:
         """
         Get payment information from YooKassa
@@ -150,6 +160,7 @@ class YooKassaClient:
             )
             raise
 
+    @method_time_metrics("cancel_payment")
     async def cancel_payment(
         self, payment_id: str, idempotence_key: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -193,6 +204,7 @@ class YooKassaClient:
             )
             raise
 
+    @method_time_metrics("create_refund")
     async def create_refund(
         self,
         yookassa_payment_id: str,

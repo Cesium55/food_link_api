@@ -1,5 +1,5 @@
 from typing import Optional
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, update, delete
 from app.auth.models import User, RefreshToken
@@ -12,6 +12,16 @@ class AuthService:
     
     def __init__(self):
         self.password_utils = PasswordUtils()
+
+    @staticmethod
+    def _utc_now_naive() -> datetime:
+        return datetime.now(timezone.utc).replace(tzinfo=None)
+
+    @classmethod
+    def _to_naive_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
     
     async def create_user(
         self, 
@@ -69,8 +79,8 @@ class AuthService:
         result = await session.execute(
             insert(RefreshToken).values(
                 user_id=user_id,
-                expires_at=expires_at,
-                created_at=datetime.now(timezone.utc)
+                expires_at=self._to_naive_utc(expires_at),
+                created_at=self._utc_now_naive()
             ).returning(RefreshToken)
         )
         return result.scalar_one()
@@ -89,7 +99,7 @@ class AuthService:
             .where(
                 RefreshToken.token == token,
                 RefreshToken.is_revoked.is_(False),
-                RefreshToken.expires_at >= datetime.now(timezone.utc),
+                RefreshToken.expires_at >= self._utc_now_naive(),
             )
             .values(is_revoked=True)
             .returning(RefreshToken)
@@ -107,7 +117,7 @@ class AuthService:
     async def cleanup_expired_tokens(self, session: AsyncSession) -> None:
         """Clean up expired refresh tokens"""
         await session.execute(
-            delete(RefreshToken).where(RefreshToken.expires_at < datetime.now(timezone.utc))
+            delete(RefreshToken).where(RefreshToken.expires_at < self._utc_now_naive())
         )
 
     async def update_user_is_seller(self, session: AsyncSession, user_id: int, is_seller: bool) -> User:

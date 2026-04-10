@@ -2,8 +2,12 @@ import httpx
 from typing import Optional, Dict, Any
 from logger import get_logger
 from config import settings
+from metrics.external_service import create_service_metrics
 
 logger = get_logger(__name__)
+
+method_time_metrics = create_service_metrics("yandex_maps")
+
 
 
 class GeocodeResult:
@@ -43,6 +47,7 @@ class YandexGeocoder:
             headers={"Referer": "https://gembos.ru"}
         )
     
+    @method_time_metrics("geocode")
     async def geocode_address(self, address: str) -> Optional[GeocodeResult]:
         """Geocode an address string to get location and address components"""
         params = {
@@ -61,6 +66,7 @@ class YandexGeocoder:
         
         return self._parse_geocoder_response(data)
     
+    @method_time_metrics("reverse_geocode")
     async def reverse_geocode(self, longitude: float, latitude: float) -> Optional[GeocodeResult]:
         """Reverse geocode coordinates to get address"""
         coords = f"{longitude},{latitude}"

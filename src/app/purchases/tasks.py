@@ -1,5 +1,5 @@
 """Celery tasks for purchase expiration"""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from celery import Task
 from sqlalchemy import select, update
 from database import get_sync_session
@@ -101,7 +101,9 @@ async def cancel_all_expired_purchases() -> dict:
             offers_service = OffersService()
             
             # Calculate expiration time
-            expiration_time = datetime.utcnow() - timedelta(seconds=settings.purchase_expiration_seconds)
+            expiration_time = datetime.now(timezone.utc) - timedelta(
+                seconds=settings.purchase_expiration_seconds
+            )
             
             # Find all pending purchases that are older than expiration time
             result = await session.execute(
@@ -155,4 +157,3 @@ async def cancel_all_expired_purchases() -> dict:
         except Exception as e:
             await session.rollback()
             raise
-

@@ -86,10 +86,7 @@ class JWTUtils:
     def verify_access_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Verify and decode JWT access token"""
         try:
-            if self.algorithm == "RS256":
-                payload = jwt.decode(token, self.public_key, algorithms=[self.algorithm])
-            else:
-                payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+            payload = self._decode_token(token)
             if payload.get("type") != "access":
                 return None
             return payload
@@ -133,15 +130,18 @@ class JWTUtils:
             Decoded payload if valid, None otherwise
         """
         try:
-            if self.algorithm == "RS256":
-                payload = jwt.decode(token, self.public_key, algorithms=[self.algorithm])
-            else:
-                payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+            payload = self._decode_token(token)
             if payload.get("type") != "order":
                 return None
             return payload
         except jwt.PyJWTError:
             return None
+
+    def _decode_token(self, token: str) -> Dict[str, Any]:
+        """Decode JWT token."""
+        if self.algorithm == "RS256":
+            return jwt.decode(token, self.public_key, algorithms=[self.algorithm])
+        return jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
     
     def get_public_key(self) -> str:
         """
