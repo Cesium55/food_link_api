@@ -3,11 +3,9 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, update, delete, and_, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.exc import NoResultFound
 
 from app.purchases.models import Purchase, PurchaseOffer, PurchaseOfferResult
-from app.offers.models import Offer
-from app.shop_points.models import ShopPoint
 
 
 class PurchasesService:
@@ -53,24 +51,24 @@ class PurchasesService:
 
     async def get_purchase_by_id(
         self, session: AsyncSession, purchase_id: int
-    ) -> Optional[Purchase]:
+    ) -> Purchase:
         """Get purchase by ID"""
         result = await session.execute(
             select(Purchase)
             .where(Purchase.id == purchase_id)
         )
-        return result.scalar_one_or_none()
+        return result.scalar_one()
 
     async def get_purchase_by_id_for_update(
         self, session: AsyncSession, purchase_id: int
-    ) -> Optional[Purchase]:
+    ) -> Purchase:
         """Get purchase by ID with FOR UPDATE lock"""
         result = await session.execute(
             select(Purchase)
             .where(Purchase.id == purchase_id)
             .with_for_update()
         )
-        return result.scalar_one_or_none()
+        return result.scalar_one()
 
     async def get_purchase_offers_by_purchase_id(
         self, session: AsyncSession, purchase_id: int
@@ -147,7 +145,7 @@ class PurchasesService:
     async def get_seller_purchases_paginated(
         self,
         session: AsyncSession,
-        seller_id: int,
+        seller_offer_ids: List[int],
         page: int,
         page_size: int,
         status: Optional[str] = None,
@@ -162,8 +160,11 @@ class PurchasesService:
         Dict[int, List[PurchaseOffer]],
         Dict[int, List[PurchaseOfferResult]],
     ]:
-        """Get paginated purchases containing current seller's offers only."""
-        conditions = [ShopPoint.seller_id == seller_id]
+        """Get paginated purchases containing provided seller offer IDs only."""
+        if not seller_offer_ids:
+            return [], 0, {}, {}
+
+        conditions = [PurchaseOffer.offer_id.in_(seller_offer_ids)]
 
         if status is not None:
             conditions.append(Purchase.status == status)
@@ -185,8 +186,6 @@ class PurchasesService:
             select(func.count(func.distinct(Purchase.id)))
             .select_from(Purchase)
             .join(PurchaseOffer, PurchaseOffer.purchase_id == Purchase.id)
-            .join(Offer, Offer.id == PurchaseOffer.offer_id)
-            .join(ShopPoint, ShopPoint.id == Offer.shop_id)
             .where(and_(*conditions))
         )
         count_result = await session.execute(count_query)
@@ -196,8 +195,6 @@ class PurchasesService:
         purchase_ids_query = (
             select(Purchase.id, Purchase.created_at)
             .join(PurchaseOffer, PurchaseOffer.purchase_id == Purchase.id)
-            .join(Offer, Offer.id == PurchaseOffer.offer_id)
-            .join(ShopPoint, ShopPoint.id == Offer.shop_id)
             .where(and_(*conditions))
             .distinct()
             .order_by(Purchase.created_at.desc())
@@ -219,17 +216,11 @@ class PurchasesService:
 
         purchase_offers_result = await session.execute(
             select(PurchaseOffer)
-            .join(Offer, Offer.id == PurchaseOffer.offer_id)
-            .join(ShopPoint, ShopPoint.id == Offer.shop_id)
             .where(
                 and_(
                     PurchaseOffer.purchase_id.in_(purchase_ids),
-                    ShopPoint.seller_id == seller_id
+                    PurchaseOffer.offer_id.in_(seller_offer_ids),
                 )
-            )
-            .options(
-                selectinload(PurchaseOffer.offer).selectinload(Offer.product),
-                selectinload(PurchaseOffer.offer).selectinload(Offer.shop_point),
             )
         )
         seller_purchase_offers = list(purchase_offers_result.scalars().all())
@@ -296,7 +287,7 @@ class PurchasesService:
 
     async def get_pending_purchase_by_user(
         self, session: AsyncSession, user_id: int, for_update: bool = False
-    ) -> Optional[Purchase]:
+    ) -> Purchase:
         """
         Get pending purchase by user ID.
         
@@ -313,7 +304,29 @@ class PurchasesService:
             query = query.with_for_update()
         
         result = await session.execute(query)
-        return result.scalar_one_or_none()
+        return result.scalar_one()
+
+    async def has_pending_purchase_by_user(
+        self, session: AsyncSession, user_id: int, for_update: bool = False
+    ) -> bool:
+        """
+        Check if user has a pending purchase.
+        Uses strict select with optional row lock and handles "not found" explicitly.
+        """
+        query = select(Purchase.id).where(
+            Purchase.user_id == user_id,
+            Purchase.status == "pending"
+        )
+        if for_update:
+            query = query.with_for_update()
+        query = query.limit(1)
+
+        result = await session.execute(query)
+        try:
+            result.scalar_one()
+            return True
+        except NoResultFound:
+            return False
 
 
     async def update_purchase_status(
@@ -456,39 +469,15 @@ class PurchasesService:
         result = await session.execute(
             select(PurchaseOffer)
             .where(PurchaseOffer.purchase_id == purchase_id)
-            .options(selectinload(PurchaseOffer.offer))
         )
         return list(result.scalars().all())
 
-    async def get_purchase_offers_by_seller_and_purchase(
-        self, session: AsyncSession, purchase_id: int, seller_id: int
+    async def get_purchase_offers_by_purchase_and_offer_ids(
+        self, session: AsyncSession, purchase_id: int, offer_ids: List[int]
     ) -> List[PurchaseOffer]:
-        """
-        Get purchase offers for specific seller and purchase.
-        Filters offers by seller's shop points.
-        """
-        # Get shop point IDs for the seller
-        from app.shop_points.models import ShopPoint
-        shop_points_result = await session.execute(
-            select(ShopPoint.id)
-            .where(ShopPoint.seller_id == seller_id)
-        )
-        shop_point_ids = [row[0] for row in shop_points_result.all()]
-        
-        if not shop_point_ids:
-            return []
-        
-        # Get offers for these shop points
-        offers_result = await session.execute(
-            select(Offer.id)
-            .where(Offer.shop_id.in_(shop_point_ids))
-        )
-        offer_ids = [row[0] for row in offers_result.all()]
-        
         if not offer_ids:
             return []
-        
-        # Get purchase offers for these offers
+
         result = await session.execute(
             select(PurchaseOffer)
             .where(
@@ -497,31 +486,69 @@ class PurchasesService:
                     PurchaseOffer.offer_id.in_(offer_ids)
                 )
             )
-            .options(selectinload(PurchaseOffer.offer).selectinload(Offer.product))
         )
         return list(result.scalars().all())
+
+    async def get_purchase_offer_by_purchase_and_offer(
+        self, session: AsyncSession, purchase_id: int, offer_id: int
+    ) -> PurchaseOffer:
+        """Get purchase offer by composite key"""
+        result = await session.execute(
+            select(PurchaseOffer).where(
+                and_(
+                    PurchaseOffer.purchase_id == purchase_id,
+                    PurchaseOffer.offer_id == offer_id,
+                )
+            )
+        )
+        return result.scalar_one()
 
     async def check_all_offers_fulfilled(
         self, session: AsyncSession, purchase_id: int
     ) -> bool:
-        """Check if all offers in purchase have been fulfilled (processed)"""
-        # Get all purchase offers
-        result = await session.execute(
+        """
+        Check if purchase is fully resolved and can be completed.
+
+        A purchase is considered resolved when every purchase offer:
+        1. has been processed by seller (fulfilled/not_fulfilled),
+        2. has a corresponding PurchaseOfferResult,
+        3. issued quantity + refunded quantity covers requested quantity.
+        """
+        purchase_offers_result = await session.execute(
             select(PurchaseOffer)
             .where(PurchaseOffer.purchase_id == purchase_id)
         )
-        purchase_offers = list(result.scalars().all())
-        
+        purchase_offers = list(purchase_offers_result.scalars().all())
+
         if not purchase_offers:
             return False
-        
-        # Check that all offers are fulfilled:
-        # 1. fulfillment_status must be 'fulfilled'
-        # 2. fulfilled_quantity must be >= quantity (all requested items were fulfilled)
+
+        offer_results_result = await session.execute(
+            select(PurchaseOfferResult).where(
+                PurchaseOfferResult.purchase_id == purchase_id
+            )
+        )
+        offer_results = list(offer_results_result.scalars().all())
+        offer_results_by_offer_id = {offer_result.offer_id: offer_result for offer_result in offer_results}
+
         for po in purchase_offers:
-            if po.fulfillment_status != 'fulfilled':
+            offer_result = offer_results_by_offer_id.get(po.offer_id)
+            if offer_result is None:
                 return False
-            if po.fulfilled_quantity is None or po.fulfilled_quantity < po.quantity:
+
+            refunded_quantity = offer_result.refunded_quantity or 0
+
+            # Fully refunded lines are considered resolved even without fulfillment processing.
+            if refunded_quantity >= po.quantity:
+                continue
+
+            if po.fulfillment_status not in {"fulfilled", "not_fulfilled"}:
                 return False
-        
+
+            fulfilled_quantity = po.fulfilled_quantity or 0
+            if po.fulfillment_status == "not_fulfilled" and fulfilled_quantity != 0:
+                return False
+            if fulfilled_quantity + refunded_quantity < po.quantity:
+                return False
+
         return True

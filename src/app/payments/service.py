@@ -217,13 +217,18 @@ class PaymentsService:
         session: AsyncSession,
         purchase_id: int,
     ) -> None:
-        """Move purchase offer result money flow to in_system after successful payment"""
+        """
+        Move purchase offer result money flow to in_system after successful payment.
+
+        Include every processed line (processed_quantity > 0), not only full "success".
+        """
         await session.execute(
             update(PurchaseOfferResult)
             .where(
                 and_(
                     PurchaseOfferResult.purchase_id == purchase_id,
-                    PurchaseOfferResult.status == "success",
+                    PurchaseOfferResult.processed_quantity.is_not(None),
+                    PurchaseOfferResult.processed_quantity > 0,
                 )
             )
             .values(money_flow_status=MoneyFlowStatus.IN_SYSTEM.value)

@@ -352,6 +352,32 @@ class OffersService:
         )
         return list(result.scalars().all())
 
+    async def get_offers_by_ids_with_products(
+        self, session: AsyncSession, offer_ids: List[int]
+    ) -> List[Offer]:
+        """Get offers by IDs with product relationship loaded."""
+        if not offer_ids:
+            return []
+
+        result = await session.execute(
+            select(Offer)
+            .where(Offer.id.in_(offer_ids))
+            .options(selectinload(Offer.product))
+        )
+        return list(result.scalars().all())
+
+    async def get_offers_by_shop_ids(
+        self, session: AsyncSession, shop_ids: List[int]
+    ) -> List[Offer]:
+        """Get offers for given shop point IDs."""
+        if not shop_ids:
+            return []
+
+        result = await session.execute(
+            select(Offer).where(Offer.shop_id.in_(shop_ids))
+        )
+        return list(result.scalars().all())
+
     async def get_offers_by_ids_for_update(
         self, session: AsyncSession, offer_ids: List[int]
     ) -> List[Offer]:

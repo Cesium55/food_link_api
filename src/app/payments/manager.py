@@ -507,6 +507,23 @@ class PaymentsManager:
             )
 
         updated_payment = await self._update_payment_to_succeeded(session, payment_id)
+
+        # Purchase can already be cancelled by expiration flow while payment webhook arrives later.
+        # Do not resurrect cancelled purchases back to confirmed.
+        if purchase.status == PurchaseStatus.CANCELLED.value:
+            await self.create_user_refund(
+                session=session,
+                payment_id=payment_id,
+                amount=updated_payment.amount,
+                reason=(
+                    f"Auto refund for late successful payment #{payment_id} "
+                    f"for cancelled purchase #{purchase.id}"
+                ),
+                auto_commit=False,
+            )
+            await session.commit()
+            return schemas.Payment.model_validate(updated_payment)
+
         await self._confirm_purchase(session, payment.purchase_id)
         await self._decrease_offer_counts(session, payment.purchase_id)
         await self.service.mark_offer_results_in_system_by_purchase(
@@ -1025,6 +1042,11 @@ class PaymentsManager:
                     else MoneyFlowStatus.IN_SYSTEM.value
                 ),
                 message=message,
+            )
+
+        if await self.purchases_service.check_all_offers_fulfilled(session, purchase_id):
+            await self.purchases_service.update_purchase_status(
+                session, purchase_id, PurchaseStatus.COMPLETED.value
             )
 
         await session.commit()

@@ -7,6 +7,7 @@ from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from fastapi import HTTPException, status
+from sqlalchemy.orm import exc as orm_exc
 
 from app.purchases.manager import PurchasesManager
 from app.purchases.service import PurchasesService
@@ -269,7 +270,7 @@ class TestPurchasesService:
     @pytest.mark.asyncio
     async def test_get_purchase_by_id_found(self, purchases_service, mock_session, mock_purchase):
         """Test getting purchase by ID - found"""
-        mock_session.execute.return_value = create_mock_execute_result(mock_purchase, "scalar_one_or_none")
+        mock_session.execute.return_value = create_mock_execute_result(mock_purchase, "scalar_one")
         
         purchase = await purchases_service.get_purchase_by_id(mock_session, TEST_PURCHASE_ID)
         
@@ -279,18 +280,20 @@ class TestPurchasesService:
 
     @pytest.mark.asyncio
     async def test_get_purchase_by_id_not_found(self, purchases_service, mock_session):
-        """Test getting purchase by ID - not found"""
-        mock_session.execute.return_value = create_mock_execute_result(None, "scalar_one_or_none")
-        
-        purchase = await purchases_service.get_purchase_by_id(mock_session, 999)
-        
-        assert purchase is None
+        """Test getting purchase by ID - not found raises NoResultFound"""
+        mock_result = Mock()
+        mock_result.scalar_one.side_effect = orm_exc.NoResultFound()
+        mock_session.execute.return_value = mock_result
+
+        with pytest.raises(orm_exc.NoResultFound):
+            await purchases_service.get_purchase_by_id(mock_session, 999)
+
         mock_session.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_purchase_by_id_for_update(self, purchases_service, mock_session, mock_purchase):
         """Test getting purchase by ID with FOR UPDATE lock"""
-        mock_session.execute.return_value = create_mock_execute_result(mock_purchase, "scalar_one_or_none")
+        mock_session.execute.return_value = create_mock_execute_result(mock_purchase, "scalar_one")
         
         purchase = await purchases_service.get_purchase_by_id_for_update(mock_session, TEST_PURCHASE_ID)
         
@@ -390,8 +393,6 @@ class TestPurchasesService:
         self, purchases_service, mock_session, mock_purchase, mock_purchase_offer, mock_offer
     ):
         """Test getting paginated purchases for seller."""
-        mock_purchase_offer.offer = mock_offer
-
         mock_count_result = create_mock_scalar_result(1)
         mock_purchase_ids_result = Mock()
         mock_purchase_ids_result.all.return_value = [(TEST_PURCHASE_ID,)]
@@ -409,7 +410,7 @@ class TestPurchasesService:
 
         purchases, total_count, purchase_offers_map, offer_results_map = await purchases_service.get_seller_purchases_paginated(
             session=mock_session,
-            seller_id=TEST_SELLER_ID,
+            seller_offer_ids=[TEST_OFFER_ID],
             page=1,
             page_size=10,
             status=PurchaseStatus.PENDING.value,
@@ -439,7 +440,7 @@ class TestPurchasesService:
 
         purchases, total_count, purchase_offers_map, offer_results_map = await purchases_service.get_seller_purchases_paginated(
             session=mock_session,
-            seller_id=TEST_SELLER_ID,
+            seller_offer_ids=[TEST_OFFER_ID],
             page=1,
             page_size=10,
         )
@@ -454,7 +455,7 @@ class TestPurchasesService:
         self, purchases_service, mock_session, mock_purchase
     ):
         """Test getting pending purchase by user - found"""
-        mock_session.execute.return_value = create_mock_execute_result(mock_purchase, "scalar_one_or_none")
+        mock_session.execute.return_value = create_mock_execute_result(mock_purchase, "scalar_one")
         
         purchase = await purchases_service.get_pending_purchase_by_user(mock_session, TEST_USER_ID)
         
@@ -464,12 +465,14 @@ class TestPurchasesService:
 
     @pytest.mark.asyncio
     async def test_get_pending_purchase_by_user_not_found(self, purchases_service, mock_session):
-        """Test getting pending purchase by user - not found"""
-        mock_session.execute.return_value = create_mock_execute_result(None, "scalar_one_or_none")
-        
-        purchase = await purchases_service.get_pending_purchase_by_user(mock_session, TEST_USER_ID)
-        
-        assert purchase is None
+        """Test getting pending purchase by user - not found raises NoResultFound"""
+        mock_result = Mock()
+        mock_result.scalar_one.side_effect = orm_exc.NoResultFound()
+        mock_session.execute.return_value = mock_result
+
+        with pytest.raises(orm_exc.NoResultFound):
+            await purchases_service.get_pending_purchase_by_user(mock_session, TEST_USER_ID)
+
         mock_session.execute.assert_called_once()
 
     @pytest.mark.asyncio
@@ -477,7 +480,7 @@ class TestPurchasesService:
         self, purchases_service, mock_session, mock_purchase
     ):
         """Test getting pending purchase by user with FOR UPDATE lock"""
-        mock_session.execute.return_value = create_mock_execute_result(mock_purchase, "scalar_one_or_none")
+        mock_session.execute.return_value = create_mock_execute_result(mock_purchase, "scalar_one")
         
         purchase = await purchases_service.get_pending_purchase_by_user(
             mock_session, TEST_USER_ID, for_update=True
@@ -578,67 +581,111 @@ class TestPurchasesService:
 
     @pytest.mark.asyncio
     async def test_check_all_offers_fulfilled_true(
-        self, purchases_service, mock_session, mock_purchase_offer
+        self, purchases_service, mock_session, mock_purchase_offer, mock_purchase_offer_result
     ):
         """Test checking if all offers are fulfilled - true"""
         mock_purchase_offer.fulfillment_status = "fulfilled"
         mock_purchase_offer.fulfilled_quantity = TEST_QUANTITY  # fulfilled_quantity == quantity
+        mock_purchase_offer_result.refunded_quantity = 0
         mock_session.execute.side_effect = [
-            create_mock_scalars_result([mock_purchase_offer])  # All offers
+            create_mock_scalars_result([mock_purchase_offer]),  # Purchase offers
+            create_mock_scalars_result([mock_purchase_offer_result]),  # Offer results
         ]
         
         result = await purchases_service.check_all_offers_fulfilled(mock_session, TEST_PURCHASE_ID)
         
         assert result is True
-        assert mock_session.execute.call_count == 1
+        assert mock_session.execute.call_count == 2
 
     @pytest.mark.asyncio
     async def test_check_all_offers_fulfilled_false(
-        self, purchases_service, mock_session, mock_purchase_offer
+        self, purchases_service, mock_session, mock_purchase_offer, mock_purchase_offer_result
     ):
         """Test checking if all offers are fulfilled - false"""
         mock_purchase_offer.fulfillment_status = None
         mock_purchase_offer.fulfilled_quantity = None
+        mock_purchase_offer_result.refunded_quantity = 0
         mock_session.execute.side_effect = [
-            create_mock_scalars_result([mock_purchase_offer])  # All offers
+            create_mock_scalars_result([mock_purchase_offer]),  # Purchase offers
+            create_mock_scalars_result([mock_purchase_offer_result]),  # Offer results
         ]
         
         result = await purchases_service.check_all_offers_fulfilled(mock_session, TEST_PURCHASE_ID)
         
         assert result is False
-        assert mock_session.execute.call_count == 1
+        assert mock_session.execute.call_count == 2
     
     @pytest.mark.asyncio
     async def test_check_all_offers_fulfilled_partial_quantity(
-        self, purchases_service, mock_session, mock_purchase_offer
+        self, purchases_service, mock_session, mock_purchase_offer, mock_purchase_offer_result
     ):
         """Test checking if all offers are fulfilled - false when fulfilled_quantity < quantity"""
         mock_purchase_offer.fulfillment_status = "fulfilled"
         mock_purchase_offer.fulfilled_quantity = TEST_QUANTITY - 1  # Less than requested
+        mock_purchase_offer_result.refunded_quantity = 0
         mock_session.execute.side_effect = [
-            create_mock_scalars_result([mock_purchase_offer])  # All offers
+            create_mock_scalars_result([mock_purchase_offer]),  # Purchase offers
+            create_mock_scalars_result([mock_purchase_offer_result]),  # Offer results
         ]
         
         result = await purchases_service.check_all_offers_fulfilled(mock_session, TEST_PURCHASE_ID)
         
         assert result is False
-        assert mock_session.execute.call_count == 1
+        assert mock_session.execute.call_count == 2
     
     @pytest.mark.asyncio
     async def test_check_all_offers_fulfilled_not_fulfilled_status(
-        self, purchases_service, mock_session, mock_purchase_offer
+        self, purchases_service, mock_session, mock_purchase_offer, mock_purchase_offer_result
     ):
-        """Test checking if all offers are fulfilled - false when status is 'not_fulfilled'"""
+        """Test checking if all offers are fulfilled - false on inconsistent not_fulfilled state"""
         mock_purchase_offer.fulfillment_status = "not_fulfilled"
         mock_purchase_offer.fulfilled_quantity = TEST_QUANTITY
+        mock_purchase_offer_result.refunded_quantity = 0
         mock_session.execute.side_effect = [
-            create_mock_scalars_result([mock_purchase_offer])  # All offers
+            create_mock_scalars_result([mock_purchase_offer]),  # Purchase offers
+            create_mock_scalars_result([mock_purchase_offer_result]),  # Offer results
         ]
         
         result = await purchases_service.check_all_offers_fulfilled(mock_session, TEST_PURCHASE_ID)
         
         assert result is False
-        assert mock_session.execute.call_count == 1
+        assert mock_session.execute.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_check_all_offers_fulfilled_not_fulfilled_with_refund_true(
+        self, purchases_service, mock_session, mock_purchase_offer, mock_purchase_offer_result
+    ):
+        """Test checking if all offers are fulfilled - true when not issued items are fully refunded"""
+        mock_purchase_offer.fulfillment_status = "not_fulfilled"
+        mock_purchase_offer.fulfilled_quantity = 0
+        mock_purchase_offer_result.refunded_quantity = TEST_QUANTITY
+        mock_session.execute.side_effect = [
+            create_mock_scalars_result([mock_purchase_offer]),  # Purchase offers
+            create_mock_scalars_result([mock_purchase_offer_result]),  # Offer results
+        ]
+
+        result = await purchases_service.check_all_offers_fulfilled(mock_session, TEST_PURCHASE_ID)
+
+        assert result is True
+        assert mock_session.execute.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_check_all_offers_fulfilled_unprocessed_with_full_refund_true(
+        self, purchases_service, mock_session, mock_purchase_offer, mock_purchase_offer_result
+    ):
+        """Test checking if all offers are fulfilled - true when line is fully refunded before fulfillment."""
+        mock_purchase_offer.fulfillment_status = None
+        mock_purchase_offer.fulfilled_quantity = None
+        mock_purchase_offer_result.refunded_quantity = TEST_QUANTITY
+        mock_session.execute.side_effect = [
+            create_mock_scalars_result([mock_purchase_offer]),  # Purchase offers
+            create_mock_scalars_result([mock_purchase_offer_result]),  # Offer results
+        ]
+
+        result = await purchases_service.check_all_offers_fulfilled(mock_session, TEST_PURCHASE_ID)
+
+        assert result is True
+        assert mock_session.execute.call_count == 2
 
 
 class TestPurchasesManager:
@@ -668,7 +715,9 @@ class TestPurchasesManager:
     @pytest.mark.asyncio
     async def test_get_purchase_by_id_not_found(self, purchases_manager, mock_session):
         """Test getting purchase by ID - not found"""
-        purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=None)
+        purchases_manager.service.get_purchase_by_id = AsyncMock(
+            side_effect=orm_exc.NoResultFound()
+        )
         
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.get_purchase_by_id(mock_session, 999)
@@ -699,7 +748,9 @@ class TestPurchasesManager:
     @pytest.mark.asyncio
     async def test_get_pending_purchase_by_user_not_found(self, purchases_manager, mock_session):
         """Test getting pending purchase by user - not found"""
-        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(return_value=None)
+        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(
+            side_effect=orm_exc.NoResultFound()
+        )
         
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.get_pending_purchase_by_user(mock_session, TEST_USER_ID)
@@ -741,7 +792,8 @@ class TestPurchasesManager:
         self, purchases_manager, mock_session, mock_purchase, mock_purchase_offer, mock_offer
     ):
         """Test getting seller purchases with purchase items."""
-        mock_purchase_offer.offer = mock_offer
+        purchases_manager._get_seller_offer_ids_or_403 = AsyncMock(return_value=[TEST_OFFER_ID])
+        purchases_manager.offers_service.get_offers_by_ids = AsyncMock(return_value=[mock_offer])
         purchases_manager.service.get_seller_purchases_paginated = AsyncMock(
             return_value=([mock_purchase], 1, {TEST_PURCHASE_ID: [mock_purchase_offer]}, {})
         )
@@ -787,7 +839,9 @@ class TestPurchasesManager:
     @pytest.mark.asyncio
     async def test_update_purchase_status_not_found(self, purchases_manager, mock_session):
         """Test updating purchase status - purchase not found"""
-        purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=None)
+        purchases_manager.service.get_purchase_by_id = AsyncMock(
+            side_effect=orm_exc.NoResultFound()
+        )
         
         status_data = create_purchase_update_schema(PurchaseStatus.CONFIRMED.value)
         
@@ -847,43 +901,29 @@ class TestPurchasesManager:
     async def test_delete_purchase_success(
         self, purchases_manager, mock_session, mock_purchase
     ):
-        """Test deleting purchase - success"""
-        purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=mock_purchase)
-        purchases_manager.service.get_purchase_offers_by_purchase_id = AsyncMock(return_value=[])
-        purchases_manager.service.delete_purchase = AsyncMock()
-        
-        await purchases_manager.delete_purchase(mock_session, TEST_PURCHASE_ID)
-        
-        purchases_manager.service.delete_purchase.assert_called_once()
-        mock_session.commit.assert_called_once()
+        """Test deleting purchase is forbidden"""
+        with pytest.raises(HTTPException) as exc_info:
+            await purchases_manager.delete_purchase(mock_session, TEST_PURCHASE_ID)
+
+        assert exc_info.value.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     @pytest.mark.asyncio
     async def test_delete_purchase_not_found(self, purchases_manager, mock_session):
-        """Test deleting purchase - not found"""
-        purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=None)
-        
+        """Test deleting purchase is forbidden regardless of purchase existence"""
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.delete_purchase(mock_session, 999)
-        
-        assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+
+        assert exc_info.value.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     @pytest.mark.asyncio
     async def test_delete_purchase_releases_reservations(
         self, purchases_manager, mock_session, mock_purchase, mock_purchase_offer
     ):
-        """Test deleting purchase releases reservations if pending"""
-        purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=mock_purchase)
-        purchases_manager.service.get_purchase_offers_by_purchase_id = AsyncMock(
-            return_value=[mock_purchase_offer]
-        )
-        purchases_manager.offers_service.get_offers_by_ids_for_update = AsyncMock(return_value=[])
-        purchases_manager.offers_service.update_offer_reserved_count = AsyncMock()
-        purchases_manager.service.delete_purchase = AsyncMock()
-        
-        await purchases_manager.delete_purchase(mock_session, TEST_PURCHASE_ID)
-        
-        purchases_manager.offers_service.update_offer_reserved_count.assert_called()
-        purchases_manager.service.delete_purchase.assert_called_once()
+        """Test deleting purchase never releases reservations because deletion is forbidden"""
+        with pytest.raises(HTTPException) as exc_info:
+            await purchases_manager.delete_purchase(mock_session, TEST_PURCHASE_ID)
+
+        assert exc_info.value.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     @pytest.mark.asyncio
     async def test_generate_order_token_success(
@@ -907,7 +947,9 @@ class TestPurchasesManager:
     @pytest.mark.asyncio
     async def test_generate_order_token_purchase_not_found(self, purchases_manager, mock_session):
         """Test generating order token - purchase not found"""
-        purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=None)
+        purchases_manager.service.get_purchase_by_id = AsyncMock(
+            side_effect=orm_exc.NoResultFound()
+        )
         
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.generate_order_token(
@@ -977,14 +1019,16 @@ class TestPurchasesManager:
         purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
             return_value=mock_payment
         )
-        purchases_manager.service.get_purchase_offers_by_seller_and_purchase = AsyncMock(
+        purchases_manager._get_seller_offer_ids_or_403 = AsyncMock(return_value=[TEST_OFFER_ID])
+        purchases_manager.service.get_purchase_offers_by_purchase_and_offer_ids = AsyncMock(
             return_value=[mock_purchase_offer]
+        )
+        purchases_manager.offers_service.get_offers_by_ids_with_products = AsyncMock(
+            return_value=[mock_offer]
         )
         purchases_manager.service.get_purchase_offer_results_by_purchase_ids_and_offer_ids = AsyncMock(
             return_value=[mock_purchase_offer_result]
         )
-        mock_purchase_offer.offer = mock_offer
-        # mock_offer already has product from fixture
         
         result = await purchases_manager.verify_purchase_token(
             mock_session, "test_token", TEST_SELLER_ID
@@ -1027,7 +1071,9 @@ class TestPurchasesManager:
         """Test verifying purchase token - purchase not found"""
         payload = {"order_id": 999}
         purchases_manager.jwt_utils.verify_order_token = Mock(return_value=payload)
-        purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=None)
+        purchases_manager.service.get_purchase_by_id = AsyncMock(
+            side_effect=orm_exc.NoResultFound()
+        )
         
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.verify_purchase_token(
@@ -1063,7 +1109,7 @@ class TestPurchasesManager:
         """Test creating purchase - success"""
         purchase_data = create_purchase_create_schema()
         
-        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(return_value=None)
+        purchases_manager.service.has_pending_purchase_by_user = AsyncMock(return_value=False)
         purchases_manager.offers_service.get_offers_by_ids_for_update = AsyncMock(
             return_value=[mock_offer]
         )
@@ -1110,7 +1156,7 @@ class TestPurchasesManager:
     ):
         """Test creating purchase - user already has pending purchase"""
         purchase_data = create_purchase_create_schema()
-        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(return_value=mock_purchase)
+        purchases_manager.service.has_pending_purchase_by_user = AsyncMock(return_value=True)
         
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.create_purchase(
@@ -1127,7 +1173,7 @@ class TestPurchasesManager:
         """Test creating purchase - offer not found"""
         purchase_data = create_purchase_create_schema()
         
-        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(return_value=None)
+        purchases_manager.service.has_pending_purchase_by_user = AsyncMock(return_value=False)
         purchases_manager.offers_service.get_offers_by_ids_for_update = AsyncMock(return_value=[])
         
         with pytest.raises(HTTPException) as exc_info:
@@ -1145,7 +1191,7 @@ class TestPurchasesManager:
         purchase_data = create_purchase_create_schema()
         mock_offer.expires_date = datetime.now(timezone.utc) - timedelta(hours=1)
         
-        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(return_value=None)
+        purchases_manager.service.has_pending_purchase_by_user = AsyncMock(return_value=False)
         purchases_manager.offers_service.get_offers_by_ids_for_update = AsyncMock(
             return_value=[mock_offer]
         )
@@ -1165,7 +1211,7 @@ class TestPurchasesManager:
         """Test creating purchase - insufficient quantity"""
         purchase_data = create_purchase_create_schema(quantities=[100])  # Request more than available
         
-        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(return_value=None)
+        purchases_manager.service.has_pending_purchase_by_user = AsyncMock(return_value=False)
         purchases_manager.offers_service.get_offers_by_ids_for_update = AsyncMock(
             return_value=[mock_offer]
         )
@@ -1185,7 +1231,7 @@ class TestPurchasesManager:
         """Test creating purchase - cannot calculate price"""
         purchase_data = create_purchase_create_schema()
         
-        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(return_value=None)
+        purchases_manager.service.has_pending_purchase_by_user = AsyncMock(return_value=False)
         purchases_manager.offers_service.get_offers_by_ids_for_update = AsyncMock(
             return_value=[mock_offer]
         )
@@ -1206,7 +1252,7 @@ class TestPurchasesManager:
         """Test creating purchase with partial success - success"""
         purchase_data = create_purchase_create_schema()
         
-        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(return_value=None)
+        purchases_manager.service.has_pending_purchase_by_user = AsyncMock(return_value=False)
         purchases_manager.offers_service.get_offers_by_ids_for_update = AsyncMock(
             return_value=[mock_offer]
         )
@@ -1241,7 +1287,7 @@ class TestPurchasesManager:
         mock_offer.count = 0
         mock_offer.reserved_count = 0
         
-        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(return_value=None)
+        purchases_manager.service.has_pending_purchase_by_user = AsyncMock(return_value=False)
         purchases_manager.offers_service.get_offers_by_ids_for_update = AsyncMock(
             return_value=[mock_offer]
         )
@@ -1263,7 +1309,7 @@ class TestPurchasesManager:
         mock_offer.count = 5
         mock_offer.reserved_count = 0
         
-        purchases_manager.service.get_pending_purchase_by_user = AsyncMock(return_value=None)
+        purchases_manager.service.has_pending_purchase_by_user = AsyncMock(return_value=False)
         purchases_manager.offers_service.get_offers_by_ids_for_update = AsyncMock(
             return_value=[mock_offer]
         )
@@ -1292,6 +1338,7 @@ class TestPurchasesManager:
         self, purchases_manager, mock_session, mock_purchase, mock_payment, mock_purchase_offer, mock_offer, mock_purchase_offer_result
     ):
         """Test fulfilling order items - success"""
+        mock_purchase.status = PurchaseStatus.CONFIRMED.value
         fulfillment_data = schemas.OrderFulfillmentRequest(
             items=[
                 schemas.PurchaseOfferFulfillmentStatus(
@@ -1307,28 +1354,15 @@ class TestPurchasesManager:
         purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
             return_value=mock_payment
         )
+        purchases_manager._get_seller_offer_ids_or_403 = AsyncMock(
+            return_value=[TEST_OFFER_ID]
+        )
         purchases_manager.service.get_purchase_offer_results_by_purchase_and_offer_ids_for_update = AsyncMock(
             return_value=[mock_purchase_offer_result]
         )
-        
-        # Mock shop points query
-        mock_shop_point_result = Mock()
-        mock_shop_point_result.all.return_value = [(TEST_SHOP_ID,)]
-        mock_session.execute.return_value = mock_shop_point_result
-        
-        # Mock offers query
-        mock_offer_result = Mock()
-        mock_offer_result.all.return_value = [(TEST_OFFER_ID,)]
-        mock_session.execute.side_effect = [mock_shop_point_result, mock_offer_result]
-        
-        # Mock purchase offer query
-        mock_po_result = Mock()
-        mock_po_result.scalar_one_or_none.return_value = mock_purchase_offer
-        mock_session.execute.side_effect = [
-            mock_shop_point_result,
-            mock_offer_result,
-            mock_po_result
-        ]
+        purchases_manager.service.get_purchase_offer_by_purchase_and_offer = AsyncMock(
+            return_value=mock_purchase_offer
+        )
         
         updated_po = Mock(spec=PurchaseOffer)
         updated_po.purchase_id = TEST_PURCHASE_ID
@@ -1362,7 +1396,9 @@ class TestPurchasesManager:
             ]
         )
         
-        purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=None)
+        purchases_manager.service.get_purchase_by_id = AsyncMock(
+            side_effect=orm_exc.NoResultFound()
+        )
         
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.fulfill_order_items(
@@ -1372,10 +1408,41 @@ class TestPurchasesManager:
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
     @pytest.mark.asyncio
+    async def test_fulfill_order_items_wrong_purchase_status(
+        self, purchases_manager, mock_session, mock_purchase, mock_payment
+    ):
+        """Test fulfilling order items - purchase must be confirmed"""
+        mock_purchase.status = PurchaseStatus.PENDING.value
+        fulfillment_data = schemas.OrderFulfillmentRequest(
+            items=[
+                schemas.PurchaseOfferFulfillmentStatus(
+                    purchase_offer_id=TEST_OFFER_ID,
+                    offer_id=TEST_OFFER_ID,
+                    status="fulfilled",
+                    fulfilled_quantity=TEST_QUANTITY
+                )
+            ]
+        )
+
+        purchases_manager.service.get_purchase_by_id = AsyncMock(return_value=mock_purchase)
+        purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
+            return_value=mock_payment
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await purchases_manager.fulfill_order_items(
+                mock_session, TEST_PURCHASE_ID, fulfillment_data, TEST_SELLER_ID
+            )
+
+        assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+        assert "only for confirmed purchases" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
     async def test_fulfill_order_items_not_paid(
         self, purchases_manager, mock_session, mock_purchase, mock_payment
     ):
         """Test fulfilling order items - purchase not paid"""
+        mock_purchase.status = PurchaseStatus.CONFIRMED.value
         fulfillment_data = schemas.OrderFulfillmentRequest(
             items=[
                 schemas.PurchaseOfferFulfillmentStatus(
@@ -1392,6 +1459,9 @@ class TestPurchasesManager:
         purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
             return_value=mock_payment
         )
+        purchases_manager._get_seller_offer_ids_or_403 = AsyncMock(
+            return_value=[TEST_OFFER_ID]
+        )
         
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.fulfill_order_items(
@@ -1406,6 +1476,7 @@ class TestPurchasesManager:
         self, purchases_manager, mock_session, mock_purchase, mock_payment
     ):
         """Test fulfilling order items - purchase offer not found"""
+        mock_purchase.status = PurchaseStatus.CONFIRMED.value
         fulfillment_data = schemas.OrderFulfillmentRequest(
             items=[
                 schemas.PurchaseOfferFulfillmentStatus(
@@ -1421,27 +1492,15 @@ class TestPurchasesManager:
         purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
             return_value=mock_payment
         )
+        purchases_manager._get_seller_offer_ids_or_403 = AsyncMock(
+            return_value=[999]
+        )
         purchases_manager.service.get_purchase_offer_results_by_purchase_and_offer_ids_for_update = AsyncMock(
             return_value=[]
         )
-        
-        # Mock shop points query
-        mock_shop_point_result = Mock()
-        mock_shop_point_result.all.return_value = [(TEST_SHOP_ID,)]
-        
-        # Mock offers query
-        mock_offer_result = Mock()
-        mock_offer_result.all.return_value = [(TEST_OFFER_ID,)]
-        
-        # Mock purchase offer query - not found
-        mock_po_result = Mock()
-        mock_po_result.scalar_one_or_none.return_value = None
-        
-        mock_session.execute.side_effect = [
-            mock_shop_point_result,
-            mock_offer_result,
-            mock_po_result
-        ]
+        purchases_manager.service.get_purchase_offer_by_purchase_and_offer = AsyncMock(
+            side_effect=orm_exc.NoResultFound()
+        )
         
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.fulfill_order_items(
@@ -1455,6 +1514,7 @@ class TestPurchasesManager:
         self, purchases_manager, mock_session, mock_purchase, mock_payment
     ):
         """Test fulfilling order items - offer doesn't belong to seller"""
+        mock_purchase.status = PurchaseStatus.CONFIRMED.value
         fulfillment_data = schemas.OrderFulfillmentRequest(
             items=[
                 schemas.PurchaseOfferFulfillmentStatus(
@@ -1470,31 +1530,19 @@ class TestPurchasesManager:
         purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
             return_value=mock_payment
         )
+        purchases_manager._get_seller_offer_ids_or_403 = AsyncMock(
+            return_value=[999]
+        )
         purchases_manager.service.get_purchase_offer_results_by_purchase_and_offer_ids_for_update = AsyncMock(
             return_value=[]
         )
-        
-        # Mock shop points query
-        mock_shop_point_result = Mock()
-        mock_shop_point_result.all.return_value = [(TEST_SHOP_ID,)]
-        
-        # Mock offers query - return different offer ID
-        mock_offer_result = Mock()
-        mock_offer_result.all.return_value = [(999,)]  # Different offer ID
-        
-        # Mock purchase offer query
-        mock_po_result = Mock()
         mock_po = Mock(spec=PurchaseOffer)
         mock_po.purchase_id = TEST_PURCHASE_ID
         mock_po.offer_id = TEST_OFFER_ID
         mock_po.quantity = TEST_QUANTITY
-        mock_po_result.scalar_one_or_none.return_value = mock_po
-        
-        mock_session.execute.side_effect = [
-            mock_shop_point_result,
-            mock_offer_result,
-            mock_po_result
-        ]
+        purchases_manager.service.get_purchase_offer_by_purchase_and_offer = AsyncMock(
+            return_value=mock_po
+        )
         
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.fulfill_order_items(
@@ -1508,6 +1556,7 @@ class TestPurchasesManager:
         self, purchases_manager, mock_session, mock_purchase, mock_payment, mock_purchase_offer, mock_purchase_offer_result
     ):
         """Test fulfilling order items - fulfilled quantity exceeds requested"""
+        mock_purchase.status = PurchaseStatus.CONFIRMED.value
         fulfillment_data = schemas.OrderFulfillmentRequest(
             items=[
                 schemas.PurchaseOfferFulfillmentStatus(
@@ -1523,27 +1572,15 @@ class TestPurchasesManager:
         purchases_manager.payments_manager.service.get_payment_by_purchase_id = AsyncMock(
             return_value=mock_payment
         )
+        purchases_manager._get_seller_offer_ids_or_403 = AsyncMock(
+            return_value=[TEST_OFFER_ID]
+        )
         purchases_manager.service.get_purchase_offer_results_by_purchase_and_offer_ids_for_update = AsyncMock(
             return_value=[mock_purchase_offer_result]
         )
-        
-        # Mock shop points query
-        mock_shop_point_result = Mock()
-        mock_shop_point_result.all.return_value = [(TEST_SHOP_ID,)]
-        
-        # Mock offers query
-        mock_offer_result = Mock()
-        mock_offer_result.all.return_value = [(TEST_OFFER_ID,)]
-        
-        # Mock purchase offer query
-        mock_po_result = Mock()
-        mock_po_result.scalar_one_or_none.return_value = mock_purchase_offer
-        
-        mock_session.execute.side_effect = [
-            mock_shop_point_result,
-            mock_offer_result,
-            mock_po_result
-        ]
+        purchases_manager.service.get_purchase_offer_by_purchase_and_offer = AsyncMock(
+            return_value=mock_purchase_offer
+        )
         
         with pytest.raises(HTTPException) as exc_info:
             await purchases_manager.fulfill_order_items(

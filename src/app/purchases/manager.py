@@ -1,7 +1,6 @@
 from typing import List, Dict, Optional, Any
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
 from fastapi import HTTPException, status
 
 from datetime import datetime, timezone, timedelta
@@ -12,11 +11,8 @@ from app.offers.service import OffersService
 from app.offers.manager import OffersManager
 from app.offers import schemas as offers_schemas
 from app.offers.models import Offer
-from app.shop_points.models import ShopPoint
 from app.sellers.manager import SellersManager
-from app.sellers.service import SellersService
-from app.sellers.models import Seller
-from sqlalchemy.orm import selectinload
+from app.shop_points.service import ShopPointsService
 from app.payments.manager import PaymentsManager
 from utils.errors_handler import handle_alchemy_error
 from app.purchases.tasks import check_purchase_expiration
@@ -39,8 +35,195 @@ class PurchasesManager:
         self.offers_manager = OffersManager()
         self.payments_manager = PaymentsManager()
         self.jwt_utils = JWTUtils()
-        self.sellers_service = SellersService()
         self.sellers_manager = SellersManager()
+        self.shop_points_service = ShopPointsService()
+
+    def _validate_purchase_has_offers(
+        self, purchase_data: schemas.PurchaseCreate
+    ) -> None:
+        if not purchase_data.offers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Purchase must contain at least one offer"
+            )
+
+    @handle_alchemy_error
+    async def _ensure_no_pending_purchase_for_user(
+        self, session: AsyncSession, user_id: int, stage: str
+    ) -> None:
+        logger.info(
+            f"Checking for existing pending purchase for user_id={user_id}",
+            extra={"stage": stage},
+        )
+        existing_pending = await self.service.has_pending_purchase_by_user(
+            session, user_id, for_update=True
+        )
+        logger.info(
+            f"Existing pending check complete: found={existing_pending}",
+            extra={"stage": stage},
+        )
+        if existing_pending:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="User already has a pending purchase. Only one pending purchase is allowed at a time."
+            )
+
+    @handle_alchemy_error
+    async def _lock_requested_offers(
+        self, session: AsyncSession, purchase_data: schemas.PurchaseCreate, stage: str
+    ) -> Dict[int, Offer]:
+        all_offer_ids = [offer.offer_id for offer in purchase_data.offers]
+        logger.info(f"Locking offers: {all_offer_ids}", extra={"stage": stage})
+        locked_offers = await self.offers_service.get_offers_by_ids_for_update(
+            session, all_offer_ids
+        )
+        logger.info(
+            f"Offers locked successfully: {len(locked_offers)} offers",
+            extra={"stage": stage},
+        )
+        return {offer.id: offer for offer in locked_offers}
+
+    @handle_alchemy_error
+    async def _reserve_offers(
+        self, session: AsyncSession, purchase_offers_data: List[dict], stage: str
+    ) -> None:
+        logger.info(
+            f"Updating reserved counts for {len(purchase_offers_data)} offers",
+            extra={"stage": stage},
+        )
+        for offer_data in purchase_offers_data:
+            await self.offers_service.update_offer_reserved_count(
+                session, offer_data["offer_id"], offer_data["quantity"]
+            )
+
+    @handle_alchemy_error
+    async def _release_reservations_for_purchase(
+        self, session: AsyncSession, purchase_id: int
+    ) -> None:
+        purchase_offers = await self.service.get_purchase_offers_by_purchase_id(
+            session, purchase_id
+        )
+        offer_ids_to_release = [po.offer_id for po in purchase_offers]
+        if offer_ids_to_release:
+            await self.offers_service.get_offers_by_ids_for_update(
+                session, offer_ids_to_release
+            )
+        for purchase_offer in purchase_offers:
+            await self.offers_service.update_offer_reserved_count(
+                session, purchase_offer.offer_id, -purchase_offer.quantity
+            )
+
+    @handle_alchemy_error
+    async def _load_offers_dict_by_ids(
+        self, session: AsyncSession, offer_ids: List[int]
+    ) -> Dict[int, Offer]:
+        offers = await self.offers_service.get_offers_by_ids(session, offer_ids)
+        return {offer.id: offer for offer in offers}
+
+    @handle_alchemy_error
+    async def _build_purchase_with_offers_schema(
+        self, session: AsyncSession, purchase: Purchase
+    ) -> schemas.PurchaseWithOffers:
+        purchase_offers = await self.service.get_purchase_offers_by_purchase_id(
+            session, purchase.id
+        )
+        offer_ids = [po.offer_id for po in purchase_offers]
+        offers_dict = await self._load_offers_dict_by_ids(session, offer_ids)
+        offer_results = await self.service.get_purchase_offer_results_by_purchase_id(
+            session, purchase.id
+        )
+        return self._purchase_to_schema_with_offers(
+            purchase, purchase_offers, offers_dict, offer_results
+        )
+
+    def _build_success_offer_results_data(
+        self, purchase_data: schemas.PurchaseCreate
+    ) -> List[dict]:
+        offer_results_data = []
+        for offer_request in purchase_data.offers:
+            offer_results_data.append({
+                "offer_id": offer_request.offer_id,
+                "status": schemas.OfferProcessingStatus.SUCCESS.value,
+                "requested_quantity": offer_request.quantity,
+                "processed_quantity": offer_request.quantity,
+                "message": f"Successfully processed {offer_request.quantity} items for offer {offer_request.offer_id}"
+            })
+        return offer_results_data
+
+    def _build_offer_results_data(
+        self, offer_results: List[schemas.OfferProcessingResult]
+    ) -> List[dict]:
+        return [
+            {
+                "offer_id": result.offer_id,
+                "status": result.status.value,
+                "requested_quantity": result.requested_quantity,
+                "processed_quantity": result.processed_quantity,
+                "available_quantity": result.available_quantity,
+                "message": result.message
+            }
+            for result in offer_results
+        ]
+
+    def _schedule_purchase_expiration_task(self, purchase_id: int, stage: str) -> None:
+        logger.info("Scheduling Celery task", extra={"stage": stage})
+        try:
+            check_purchase_expiration.apply_async(
+                args=[purchase_id],
+                countdown=settings.purchase_expiration_seconds
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to schedule Celery task: {e}",
+                extra={"stage": stage},
+            )
+
+    @handle_alchemy_error
+    async def _get_paid_payment_or_400(
+        self,
+        session: AsyncSession,
+        purchase_id: int,
+        not_paid_detail: str = "Purchase is not paid"
+    ):
+        payment = await self.payments_manager.service.get_payment_by_purchase_id(
+            session, purchase_id
+        )
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Purchase has no payment record"
+            )
+        if payment.status != PaymentStatus.SUCCEEDED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=not_paid_detail
+            )
+        return payment
+
+    @handle_alchemy_error
+    async def _get_seller_offer_ids_or_403(
+        self, session: AsyncSession, seller_id: int
+    ) -> List[int]:
+        shop_points = await self.shop_points_service.get_shop_points_by_seller(
+            session, seller_id
+        )
+        shop_point_ids = [shop_point.id for shop_point in shop_points]
+        if not shop_point_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Seller has no shop points"
+            )
+
+        seller_offers = await self.offers_service.get_offers_by_shop_ids(
+            session, shop_point_ids
+        )
+        seller_offer_ids = [offer.id for offer in seller_offers]
+        if not seller_offer_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Seller has no offers"
+            )
+        return seller_offer_ids
 
     @handle_alchemy_error
     async def create_purchase(
@@ -60,39 +243,11 @@ class PurchasesManager:
             extra={"stage": "MANAGER"},
         )
         
-        if not purchase_data.offers:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Purchase must contain at least one offer"
-            )
-
-        # Check if user already has a pending purchase (with lock to prevent race conditions)
-        logger.info(
-            f"Checking for existing pending purchase for user_id={user_id}",
-            extra={"stage": "MANAGER"},
+        self._validate_purchase_has_offers(purchase_data)
+        await self._ensure_no_pending_purchase_for_user(session, user_id, stage="MANAGER")
+        locked_offers_dict = await self._lock_requested_offers(
+            session, purchase_data, stage="MANAGER"
         )
-        existing_pending = await self.service.get_pending_purchase_by_user(session, user_id, for_update=True)
-        logger.info(
-            f"Existing pending check complete: found={existing_pending is not None}",
-            extra={"stage": "MANAGER"},
-        )
-        if existing_pending:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="User already has a pending purchase. Only one pending purchase is allowed at a time."
-            )
-
-        # Get all offer IDs to lock them at once (prevents deadlocks)
-        all_offer_ids = [offer.offer_id for offer in purchase_data.offers]
-        logger.info(f"Locking offers: {all_offer_ids}", extra={"stage": "MANAGER"})
-        locked_offers = await self.offers_service.get_offers_by_ids_for_update(
-            session, all_offer_ids
-        )
-        logger.info(
-            f"Offers locked successfully: {len(locked_offers)} offers",
-            extra={"stage": "MANAGER"},
-        )
-        locked_offers_dict = {offer.id: offer for offer in locked_offers}
         
         purchase_offers_data = []
         total_cost = Decimal('0.00')
@@ -145,15 +300,7 @@ class PurchasesManager:
             
             successful_offer_ids.append(offer_id)
         
-        # Update reserved_count for all offers
-        logger.info(
-            f"Updating reserved counts for {len(purchase_offers_data)} offers",
-            extra={"stage": "MANAGER"},
-        )
-        for offer_data in purchase_offers_data:
-            await self.offers_service.update_offer_reserved_count(
-                session, offer_data["offer_id"], offer_data["quantity"]
-            )
+        await self._reserve_offers(session, purchase_offers_data, stage="MANAGER")
         
         # Create purchase
         logger.info(
@@ -172,18 +319,9 @@ class PurchasesManager:
             extra={"stage": "MANAGER"},
         )
         
-        # Create offer results (all offers were successful in this method)
-        offer_results_data = []
-        for offer_request in purchase_data.offers:
-            offer_results_data.append({
-                "offer_id": offer_request.offer_id,
-                "status": schemas.OfferProcessingStatus.SUCCESS.value,
-                "requested_quantity": offer_request.quantity,
-                "processed_quantity": offer_request.quantity,
-                "message": f"Successfully processed {offer_request.quantity} items for offer {offer_request.offer_id}"
-            })
-        
-        await self.service.create_purchase_offer_results(session, purchase.id, offer_results_data)
+        await self.service.create_purchase_offer_results(
+            session, purchase.id, self._build_success_offer_results_data(purchase_data)
+        )
         
         # Create payment for this purchase (in the same transaction)
         logger.info(f"Creating payment for purchase_id={purchase.id}", extra={"stage": "MANAGER"})
@@ -197,24 +335,11 @@ class PurchasesManager:
         # Send notifications to sellers about reserved items
         # await self._notify_sellers_about_reservation(session, purchase.id)
         
-        # Schedule Celery task to check purchase expiration
-        logger.info("Scheduling Celery task", extra={"stage": "MANAGER"})
-        try:
-            check_purchase_expiration.apply_async(
-                args=[purchase.id],
-                countdown=settings.purchase_expiration_seconds
-            )
-        except Exception as e:
-            # Log error but don't fail the purchase creation
-            logger.error(
-                f"Failed to schedule Celery task: {e}",
-                extra={"stage": "MANAGER"},
-            )
+        self._schedule_purchase_expiration_task(purchase.id, stage="MANAGER")
         
         # Reload offers to get updated reserved_count values for response
         logger.info("Reloading offers", extra={"stage": "MANAGER"})
-        updated_offers = await self.offers_service.get_offers_by_ids(session, successful_offer_ids)
-        offers_dict = {offer.id: offer for offer in updated_offers}
+        offers_dict = await self._load_offers_dict_by_ids(session, successful_offer_ids)
         
         # Load offer results
         offer_results = await self.service.get_purchase_offer_results_by_purchase_id(session, purchase.id)
@@ -250,27 +375,8 @@ class PurchasesManager:
             extra={"stage": "MANAGER"},
         )
         
-        if not purchase_data.offers:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Purchase must contain at least one offer"
-            )
-
-        # Check if user already has a pending purchase (with lock to prevent race conditions)
-        logger.info(
-            "Checking for existing pending purchase (with lock)...",
-            extra={"stage": "MANAGER"},
-        )
-        existing_pending = await self.service.get_pending_purchase_by_user(session, user_id, for_update=True)
-        logger.info(
-            f"Existing pending check complete: found={existing_pending is not None}",
-            extra={"stage": "MANAGER"},
-        )
-        if existing_pending:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="User already has a pending purchase. Only one pending purchase is allowed at a time."
-            )
+        self._validate_purchase_has_offers(purchase_data)
+        await self._ensure_no_pending_purchase_for_user(session, user_id, stage="MANAGER")
 
         # Process each offer individually
         offer_results: List[schemas.OfferProcessingResult] = []
@@ -278,17 +384,9 @@ class PurchasesManager:
         total_cost = Decimal('0.00')
         successful_offer_ids = []
         
-        # Get all offer IDs to lock them at once (prevents deadlocks)
-        all_offer_ids = [offer.offer_id for offer in purchase_data.offers]
-        logger.info(f"Locking offers: {all_offer_ids}", extra={"stage": "MANAGER-PARTIAL"})
-        locked_offers = await self.offers_service.get_offers_by_ids_for_update(
-            session, all_offer_ids
+        locked_offers_dict = await self._lock_requested_offers(
+            session, purchase_data, stage="MANAGER-PARTIAL"
         )
-        logger.info(
-            f"Offers locked: {len(locked_offers)} offers",
-            extra={"stage": "MANAGER-PARTIAL"},
-        )
-        locked_offers_dict = {offer.id: offer for offer in locked_offers}
         
         # Process each offer from the request
         for offer_request in purchase_data.offers:
@@ -345,8 +443,8 @@ class PurchasesManager:
             if processed_quantity > 0:
                 cost_per_item = self.offers_manager.calculate_dynamic_price(offer)
                 if cost_per_item is None:
-                    # Skip this offer if price cannot be calculated
-                    result.status = schemas.OfferProcessingStatus.ERROR
+                    # Keep DB-compatible status values (error is not allowed by DB constraint)
+                    result.status = schemas.OfferProcessingStatus.EXPIRED
                     result.message = f"Cannot calculate price for offer {offer_id}. Offer may be expired or missing required data."
                     offer_results.append(result)
                     continue
@@ -370,15 +468,7 @@ class PurchasesManager:
                 detail="No offers could be processed. All offers failed validation."
             )
         
-        # Update reserved_count for successful offers
-        logger.info(
-            f"Updating reserved counts for {len(purchase_offers_data)} offers",
-            extra={"stage": "MANAGER-PARTIAL"},
-        )
-        for offer_data in purchase_offers_data:
-            await self.offers_service.update_offer_reserved_count(
-                session, offer_data["offer_id"], offer_data["quantity"]
-            )
+        await self._reserve_offers(session, purchase_offers_data, stage="MANAGER-PARTIAL")
         logger.info("Reserved counts updated", extra={"stage": "MANAGER-PARTIAL"})
         
         # Create purchase
@@ -397,19 +487,9 @@ class PurchasesManager:
             session, purchase.id, purchase_offers_data
         )
         
-        # Save offer results to database
-        offer_results_data = []
-        for result in offer_results:
-            offer_results_data.append({
-                "offer_id": result.offer_id,
-                "status": result.status.value,
-                "requested_quantity": result.requested_quantity,
-                "processed_quantity": result.processed_quantity,
-                "available_quantity": result.available_quantity,
-                "message": result.message
-            })
-        
-        await self.service.create_purchase_offer_results(session, purchase.id, offer_results_data)
+        await self.service.create_purchase_offer_results(
+            session, purchase.id, self._build_offer_results_data(offer_results)
+        )
         
         # Create payment for this purchase (in the same transaction)
         logger.info(
@@ -429,21 +509,10 @@ class PurchasesManager:
         # Send notifications to sellers about reserved items
         await self._notify_sellers_about_reservation(session, purchase.id)
         
-        # Schedule Celery task to check purchase expiration
-        try:
-            logger.info("Creating celeru task")
-            check_purchase_expiration.apply_async(
-                args=[purchase.id],
-                countdown=settings.purchase_expiration_seconds
-            )
-            logger.info("Celery task created")
-        except Exception as e:
-            # Log error but don't fail the purchase creation
-            logger.warning(f"Failed to schedule Celery task for purchase {purchase.id}: {e}")
+        self._schedule_purchase_expiration_task(purchase.id, stage="MANAGER-PARTIAL")
         
         # Reload offers to get updated reserved_count values for response
-        updated_offers = await self.offers_service.get_offers_by_ids(session, successful_offer_ids)
-        offers_dict = {offer.id: offer for offer in updated_offers}
+        offers_dict = await self._load_offers_dict_by_ids(session, successful_offer_ids)
         
         # Load offer results from database
         saved_offer_results = await self.service.get_purchase_offer_results_by_purchase_id(session, purchase.id)
@@ -463,58 +532,23 @@ class PurchasesManager:
             total_failed=total_failed
         )
 
+    @handle_alchemy_error
     async def get_purchase_by_id(
         self, session: AsyncSession, purchase_id: int
     ) -> schemas.PurchaseWithOffers:
         """Get purchase by ID"""
         purchase = await self.service.get_purchase_by_id(session, purchase_id)
-        if not purchase:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Purchase with id {purchase_id} not found"
-            )
-        
-        # Get purchase offers
-        purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase_id)
-        
-        # Get all offer IDs from purchase_offers
-        offer_ids = [po.offer_id for po in purchase_offers]
-        
-        # Load offers
-        offers = await self.offers_service.get_offers_by_ids(session, offer_ids)
-        offers_dict = {offer.id: offer for offer in offers}
-        
-        # Load offer results
-        offer_results = await self.service.get_purchase_offer_results_by_purchase_id(session, purchase_id)
-        
-        return self._purchase_to_schema_with_offers(purchase, purchase_offers, offers_dict, offer_results)
+        return await self._build_purchase_with_offers_schema(session, purchase)
 
+    @handle_alchemy_error
     async def get_pending_purchase_by_user(
         self, session: AsyncSession, user_id: int
     ) -> schemas.PurchaseWithOffers:
         """Get pending purchase by user ID"""
         purchase = await self.service.get_pending_purchase_by_user(session, user_id)
-        if not purchase:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No pending purchase found for this user"
-            )
-        
-        # Get purchase offers
-        purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase.id)
-        
-        # Get all offer IDs from purchase_offers
-        offer_ids = [po.offer_id for po in purchase_offers]
-        
-        # Load offers
-        offers = await self.offers_service.get_offers_by_ids(session, offer_ids)
-        offers_dict = {offer.id: offer for offer in offers}
-        
-        # Load offer results
-        offer_results = await self.service.get_purchase_offer_results_by_purchase_id(session, purchase.id)
-        
-        return self._purchase_to_schema_with_offers(purchase, purchase_offers, offers_dict, offer_results)
+        return await self._build_purchase_with_offers_schema(session, purchase)
 
+    @handle_alchemy_error
     async def get_purchases_by_user(
         self, session: AsyncSession, user_id: int
     ) -> List[schemas.Purchase]:
@@ -522,6 +556,7 @@ class PurchasesManager:
         purchases = await self.service.get_purchases_by_user(session, user_id)
         return [schemas.Purchase.model_validate(purchase) for purchase in purchases]
 
+    @handle_alchemy_error
     async def get_purchases_paginated(
         self, session: AsyncSession, page: int, page_size: int,
         status: Optional[str] = None,
@@ -546,6 +581,7 @@ class PurchasesManager:
             total_items=total_count
         )
 
+    @handle_alchemy_error
     async def get_seller_purchases_paginated(
         self,
         session: AsyncSession,
@@ -577,7 +613,7 @@ class PurchasesManager:
 
         purchases, total_count, purchase_offers_map, offer_results_by_purchase_id = await self.service.get_seller_purchases_paginated(
             session=session,
-            seller_id=seller_id,
+            seller_offer_ids=await self._get_seller_offer_ids_or_403(session, seller_id),
             page=page,
             page_size=page_size,
             status=purchase_status,
@@ -588,13 +624,21 @@ class PurchasesManager:
             max_updated_at=max_updated_at,
         )
 
+        offer_ids = {
+            purchase_offer.offer_id
+            for purchase_offers in purchase_offers_map.values()
+            for purchase_offer in purchase_offers
+        }
+        offers = await self.offers_service.get_offers_by_ids(session, list(offer_ids))
+        offers_by_id = {offer.id: offer for offer in offers}
+
         purchases_with_offers: List[schemas.PurchaseWithOffers] = []
         for purchase in purchases:
             seller_offers = purchase_offers_map.get(purchase.id, [])
             offers_dict = {
-                purchase_offer.offer_id: purchase_offer.offer
+                purchase_offer.offer_id: offers_by_id.get(purchase_offer.offer_id)
                 for purchase_offer in seller_offers
-                if purchase_offer.offer is not None
+                if purchase_offer.offer_id in offers_by_id
             }
             purchases_with_offers.append(
                 self._purchase_to_schema_with_offers(
@@ -612,6 +656,7 @@ class PurchasesManager:
             total_items=total_count
         )
     
+    @handle_alchemy_error
     async def get_purchases(
         self, session: AsyncSession,
         status: Optional[str] = None,
@@ -640,11 +685,6 @@ class PurchasesManager:
     ) -> schemas.Purchase:
         """Update purchase status"""
         purchase = await self.service.get_purchase_by_id(session, purchase_id)
-        if not purchase:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Purchase with id {purchase_id} not found"
-            )
         
         if status_data.status:
             # Validate status
@@ -658,21 +698,7 @@ class PurchasesManager:
             # If cancelling, release reserved items (only if purchase was pending)
             # If purchase was confirmed, reserved_count was already decreased on successful payment
             if status_data.status == PurchaseStatus.CANCELLED.value and purchase.status == PurchaseStatus.PENDING.value:
-                # Get purchase offers to release reservations
-                purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase_id)
-                
-                # Get offer IDs that need to be unlocked
-                offer_ids_to_release = [po.offer_id for po in purchase_offers]
-                
-                # Lock offers before releasing reservations to ensure consistency
-                if offer_ids_to_release:
-                    await self.offers_service.get_offers_by_ids_for_update(session, offer_ids_to_release)
-                
-                # Release reservations
-                for purchase_offer in purchase_offers:
-                    await self.offers_service.update_offer_reserved_count(
-                        session, purchase_offer.offer_id, -purchase_offer.quantity
-                    )
+                await self._release_reservations_for_purchase(session, purchase_id)
             
             updated_purchase = await self.service.update_purchase_status(
                 session, purchase_id, status_data.status
@@ -686,34 +712,11 @@ class PurchasesManager:
     async def delete_purchase(
         self, session: AsyncSession, purchase_id: int
     ) -> None:
-        """Delete purchase and release reservations"""
-        purchase = await self.service.get_purchase_by_id(session, purchase_id)
-        if not purchase:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Purchase with id {purchase_id} not found"
-            )
-        
-        # Release reserved items only if purchase was pending
-        # If purchase was confirmed, reserved_count was already decreased on successful payment
-        if purchase.status == PurchaseStatus.PENDING.value:
-            purchase_offers = await self.service.get_purchase_offers_by_purchase_id(session, purchase_id)
-            
-            # Get offer IDs that need to be unlocked
-            offer_ids_to_release = [po.offer_id for po in purchase_offers]
-            
-            # Lock offers before releasing reservations to ensure consistency
-            if offer_ids_to_release:
-                await self.offers_service.get_offers_by_ids_for_update(session, offer_ids_to_release)
-            
-            # Release reservations
-            for purchase_offer in purchase_offers:
-                await self.offers_service.update_offer_reserved_count(
-                    session, purchase_offer.offer_id, -purchase_offer.quantity
-                )
-        
-        await self.service.delete_purchase(session, purchase_id)
-        await session.commit()
+        """Deleting purchases is forbidden."""
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail="Deleting purchases is not allowed",
+        )
 
     async def _notify_sellers_about_reservation(
         self, session: AsyncSession, purchase_id: int
@@ -735,10 +738,9 @@ class PurchasesManager:
             shop_point_ids = list(set([offer.shop_id for offer in offers]))
             
             # Get shop points with sellers
-            shop_points_result = await session.execute(
-                select(ShopPoint).where(ShopPoint.id.in_(shop_point_ids))
+            shop_points = await self.shop_points_service.get_shop_points_by_ids(
+                session, shop_point_ids
             )
-            shop_points = shop_points_result.scalars().all()
             
             # Group offers by seller
             seller_offers: Dict[int, List[Dict[str, Any]]] = {}
@@ -870,13 +872,7 @@ class PurchasesManager:
         Raises:
             HTTPException: If purchase not found, doesn't belong to user, or is not paid
         """
-        # Get purchase
         purchase = await self.service.get_purchase_by_id(session, purchase_id)
-        if not purchase:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Purchase with id {purchase_id} not found"
-            )
         
         # Check if purchase belongs to user
         if purchase.user_id != user_id:
@@ -885,22 +881,9 @@ class PurchasesManager:
                 detail="You don't have access to this purchase"
             )
         
-        # Check if purchase is paid
-        payment = await self.payments_manager.service.get_payment_by_purchase_id(
-            session, purchase_id
+        await self._get_paid_payment_or_400(
+            session, purchase_id, not_paid_detail="Order token can only be generated for paid orders"
         )
-        
-        if not payment:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Purchase has no payment record"
-            )
-        
-        if payment.status != PaymentStatus.SUCCEEDED.value:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Order token can only be generated for paid orders"
-            )
         
         # Generate JWT token with order ID
         token = self.jwt_utils.create_order_token(purchase_id)
@@ -943,37 +926,19 @@ class PurchasesManager:
                 detail="Token does not contain order_id"
             )
         
-        # Get purchase
         purchase = await self.service.get_purchase_by_id(session, purchase_id)
-        if not purchase:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Purchase with id {purchase_id} not found"
-            )
+        await self._get_paid_payment_or_400(session, purchase_id)
         
-        # Check if purchase is paid
-        payment = await self.payments_manager.service.get_payment_by_purchase_id(
-            session, purchase_id
-        )
-        
-        if not payment:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Purchase has no payment record"
-            )
-        
-        if payment.status != PaymentStatus.SUCCEEDED.value:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Purchase is not paid"
-            )
-        
+        seller_offer_ids = await self._get_seller_offer_ids_or_403(session, seller_id)
+
         # Get purchase offers for this seller only
-        purchase_offers = await self.service.get_purchase_offers_by_seller_and_purchase(
-            session, purchase_id, seller_id
+        purchase_offers = await self.service.get_purchase_offers_by_purchase_and_offer_ids(
+            session, purchase_id, seller_offer_ids
         )
 
         offer_ids = [po.offer_id for po in purchase_offers]
+        offers = await self.offers_service.get_offers_by_ids_with_products(session, offer_ids)
+        offers_by_id = {offer.id: offer for offer in offers}
         offer_results = await self.service.get_purchase_offer_results_by_purchase_ids_and_offer_ids(
             session=session,
             purchase_ids=[purchase_id],
@@ -986,7 +951,8 @@ class PurchasesManager:
         total_cost = Decimal('0.00')
         
         for po in purchase_offers:
-            if po.offer and po.offer.product:
+            offer = offers_by_id.get(po.offer_id)
+            if offer and offer.product:
                 offer_result_model = offer_results_by_offer_id.get(po.offer_id)
                 offer_result_schema = None
                 if offer_result_model:
@@ -1010,8 +976,8 @@ class PurchasesManager:
                     fulfilled_quantity=po.fulfilled_quantity,
                     fulfillment_status=po.fulfillment_status,
                     fulfilled_at=po.fulfilled_at,
-                    product_name=po.offer.product.name,
-                    shop_point_id=po.offer.shop_id,
+                    product_name=offer.product.name,
+                    shop_point_id=offer.shop_id,
                     cost_at_purchase=po.cost_at_purchase,
                     offer_result=offer_result_schema,
                 ))
@@ -1048,56 +1014,17 @@ class PurchasesManager:
         Raises:
             HTTPException: If validation fails
         """
-        # Get purchase
         purchase = await self.service.get_purchase_by_id(session, purchase_id)
-        if not purchase:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Purchase with id {purchase_id} not found"
-            )
-        
-        # Check if purchase is paid
-        payment = await self.payments_manager.service.get_payment_by_purchase_id(
-            session, purchase_id
-        )
-        
-        if not payment:
+        if purchase.status != PurchaseStatus.CONFIRMED.value:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Purchase has no payment record"
+                detail=(
+                    "Order fulfillment is allowed only for confirmed purchases. "
+                    f"Current status: {purchase.status}"
+                ),
             )
-        
-        if payment.status != PaymentStatus.SUCCEEDED.value:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Purchase is not paid"
-            )
-        
-        # Get seller's shop point IDs
-        shop_points_result = await session.execute(
-            select(ShopPoint.id)
-            .where(ShopPoint.seller_id == seller_id)
-        )
-        shop_point_ids = [row[0] for row in shop_points_result.all()]
-        
-        if not shop_point_ids:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Seller has no shop points"
-            )
-        
-        # Get offers for these shop points
-        offers_result = await session.execute(
-            select(Offer.id)
-            .where(Offer.shop_id.in_(shop_point_ids))
-        )
-        seller_offer_ids = [row[0] for row in offers_result.all()]
-        
-        if not seller_offer_ids:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Seller has no offers"
-            )
+        await self._get_paid_payment_or_400(session, purchase_id)
+        seller_offer_ids = await self._get_seller_offer_ids_or_403(session, seller_id)
         
         request_offer_ids = [item.offer_id for item in fulfillment_data.items]
         offer_results = await self.service.get_purchase_offer_results_by_purchase_and_offer_ids_for_update(
@@ -1112,23 +1039,27 @@ class PurchasesManager:
         refund_items: List[payment_schemas.RefundByOfferResultsRequest.Item] = []
         
         for item in fulfillment_data.items:
-            # Get purchase offer
-            purchase_offer = await session.execute(
-                select(PurchaseOffer)
-                .where(
-                    and_(
-                        PurchaseOffer.purchase_id == purchase_id,
-                        PurchaseOffer.offer_id == item.offer_id
-                    )
-                )
-            )
-            po = purchase_offer.scalar_one_or_none()
-            
-            if not po:
+            if item.status not in {"fulfilled", "not_fulfilled"}:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Purchase offer with offer_id {item.offer_id} not found in purchase {purchase_id}"
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Invalid fulfillment status '{item.status}' for offer {item.offer_id}. "
+                        "Allowed values: fulfilled, not_fulfilled"
+                    ),
                 )
+            if item.status == "not_fulfilled" and item.fulfilled_quantity != 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Invalid fulfilled_quantity {item.fulfilled_quantity} for status "
+                        f"'not_fulfilled' in offer {item.offer_id}. Expected 0."
+                    ),
+                )
+
+            # Get purchase offer
+            po = await self.service.get_purchase_offer_by_purchase_and_offer(
+                session, purchase_id, item.offer_id
+            )
             
             # Validate that offer belongs to seller
             if item.offer_id not in seller_offer_ids:
@@ -1204,10 +1135,10 @@ class PurchasesManager:
                 seller_id=seller_id,
             )
         
-        # Check if all offers are fulfilled
-        all_fulfilled = await self.service.check_all_offers_fulfilled(session, purchase_id)
-        
-        if all_fulfilled:
+        # Check if purchase is fully resolved (all items issued and/or refunded)
+        purchase_resolved = await self.service.check_all_offers_fulfilled(session, purchase_id)
+
+        if purchase_resolved:
             # Update purchase status to completed
             await self.service.update_purchase_status(session, purchase_id, PurchaseStatus.COMPLETED.value)
             purchase.status = PurchaseStatus.COMPLETED.value
