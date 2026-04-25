@@ -26,9 +26,13 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    broker_connection_timeout=settings.celery_broker_connection_timeout_seconds,
+    broker_transport_options={
+        "socket_connect_timeout": settings.celery_broker_connection_timeout_seconds,
+        "socket_timeout": settings.celery_broker_socket_timeout_seconds,
+    },
 )
 
 # Импортируем задачи явно после инициализации всех моделей
 # Это гарантирует, что все relationships будут правильно настроены
 from app.purchases import tasks  # noqa: F401
-

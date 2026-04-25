@@ -1,5 +1,6 @@
 from typing import Optional
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 from app.auth.service import AuthService
@@ -69,6 +70,14 @@ class AuthManager:
     def _format_phone_number(self, phone: str) -> str:
         """Format phone number to standard format"""
         return _format_phone_number(phone)
+
+    @staticmethod
+    def _validate_refresh_token(refresh_token: str) -> str:
+        """Validate refresh token format and normalize UUID string."""
+        try:
+            return str(UUID(refresh_token))
+        except (ValueError, TypeError, AttributeError):
+            raise INVALID_REFRESH_TOKEN
 
     async def _generate_phone_verification_code(self, phone: str) -> str:
         """Generate/send phone verification code depending on app settings."""
@@ -181,25 +190,27 @@ class AuthManager:
     @handle_alchemy_error
     async def refresh_tokens(self, session: AsyncSession, refresh_data: schemas.RefreshTokenRequest) -> schemas.TokenResponse:
         """Refresh access token"""
-        cached_tokens = await get_rotated_tokens(refresh_data.refresh_token)
+        refresh_token = self._validate_refresh_token(refresh_data.refresh_token)
+
+        cached_tokens = await get_rotated_tokens(refresh_token)
         if cached_tokens:
             return cached_tokens
 
-        lock_acquired = await acquire_refresh_lock(refresh_data.refresh_token)
+        lock_acquired = await acquire_refresh_lock(refresh_token)
         if not lock_acquired:
-            cached_tokens = await wait_for_rotated_tokens(refresh_data.refresh_token)
+            cached_tokens = await wait_for_rotated_tokens(refresh_token)
             if cached_tokens:
                 return cached_tokens
             raise INVALID_REFRESH_TOKEN
 
         try:
-            cached_tokens = await get_rotated_tokens(refresh_data.refresh_token)
+            cached_tokens = await get_rotated_tokens(refresh_token)
             if cached_tokens:
                 return cached_tokens
 
             db_token = await self.service.consume_refresh_token(
                 session,
-                refresh_data.refresh_token,
+                refresh_token,
             )
             if not db_token:
                 raise INVALID_REFRESH_TOKEN
@@ -212,13 +223,13 @@ class AuthManager:
             await session.commit()
 
             await store_rotated_tokens(
-                refresh_data.refresh_token,
+                refresh_token,
                 tokens,
                 expire_seconds=settings.refresh_token_grace_period_seconds,
             )
             return tokens
         finally:
-            await release_refresh_lock(refresh_data.refresh_token)
+            await release_refresh_lock(refresh_token)
     
     @handle_alchemy_error
     async def get_user(self, session: AsyncSession, user_id: int) -> dict:

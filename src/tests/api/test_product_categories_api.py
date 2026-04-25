@@ -525,3 +525,63 @@ class TestGetCategoriesByIDsAPI:
         assert response.status_code == status.HTTP_200_OK
         data = get_response_data(response.json())
         assert len(data) == 0
+
+
+class TestCategoryAdditionalCasesAPI:
+    """Additional edge-case tests for product categories API."""
+
+    @pytest.mark.asyncio
+    async def test_create_category_with_nonexistent_parent_returns_400(
+        self, client, mock_settings, mock_image_manager_init
+    ):
+        response = await client.post(
+            "/product-categories",
+            json={
+                "name": "Orphan Category",
+                "slug": "orphan-category",
+                "parent_category_id": 999999,
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @pytest.mark.asyncio
+    async def test_update_category_with_duplicate_slug_returns_400(
+        self, client, mock_settings, mock_image_manager_init
+    ):
+        first = await client.post(
+            "/product-categories",
+            json={"name": "First", "slug": "first-slug"},
+        )
+        first_id = get_response_data(first.json())["id"]
+
+        await client.post(
+            "/product-categories",
+            json={"name": "Second", "slug": "second-slug"},
+        )
+
+        response = await client.put(
+            f"/product-categories/{first_id}",
+            json={"slug": "second-slug"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @pytest.mark.asyncio
+    async def test_get_category_with_subcategories_not_found_returns_404(
+        self, client, mock_settings, mock_image_manager_init
+    ):
+        response = await client.get("/product-categories/999999/with-subcategories")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_get_category_with_details_not_found_returns_404(
+        self, client, mock_settings, mock_image_manager_init
+    ):
+        response = await client.get("/product-categories/999999/with-details")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_get_category_with_offers_not_found_returns_404(
+        self, client, mock_settings, mock_image_manager_init
+    ):
+        response = await client.get("/product-categories/999999/with-offers")
+        assert response.status_code == status.HTTP_404_NOT_FOUND

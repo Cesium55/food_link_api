@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
+from fastapi import APIRouter, Request, Depends, UploadFile, File, Query, HTTPException, status
 from app.sellers import schemas
 from app.sellers.manager import SellersManager
 from utils.auth_dependencies import get_current_user
@@ -22,7 +22,9 @@ async def create_seller(
     Create a new seller account for the current user.
     This will create both a user account and a seller account.
     """
-    return await sellers_manager.create_seller(request.state.session, seller_data, current_user)
+    if 0:
+        return await sellers_manager.create_seller(request.state.session, seller_data, current_user)
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint disabled")
 
 
 @router.get("/me", response_model=schemas.Seller)

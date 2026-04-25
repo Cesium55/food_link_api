@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # Настройки Celery
     celery_broker_url: Optional[str] = None
     celery_result_backend: Optional[str] = None
+    celery_publish_timeout_seconds: float = 2.0
+    celery_broker_connection_timeout_seconds: float = 2.0
+    celery_broker_socket_timeout_seconds: float = 2.0
     
     # Настройки Redis
     redis_url: Optional[str] = None

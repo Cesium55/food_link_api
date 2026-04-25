@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Dict, Optional, Any
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -165,12 +166,17 @@ class PurchasesManager:
             for result in offer_results
         ]
 
-    def _schedule_purchase_expiration_task(self, purchase_id: int, stage: str) -> None:
+    async def _schedule_purchase_expiration_task(self, purchase_id: int, stage: str) -> None:
         logger.info("Scheduling Celery task", extra={"stage": stage})
         try:
-            check_purchase_expiration.apply_async(
-                args=[purchase_id],
-                countdown=settings.purchase_expiration_seconds
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    check_purchase_expiration.apply_async,
+                    args=[purchase_id],
+                    countdown=settings.purchase_expiration_seconds,
+                    retry=False,
+                ),
+                timeout=settings.celery_publish_timeout_seconds,
             )
         except Exception as e:
             logger.error(
@@ -335,7 +341,7 @@ class PurchasesManager:
         # Send notifications to sellers about reserved items
         # await self._notify_sellers_about_reservation(session, purchase.id)
         
-        self._schedule_purchase_expiration_task(purchase.id, stage="MANAGER")
+        await self._schedule_purchase_expiration_task(purchase.id, stage="MANAGER")
         
         # Reload offers to get updated reserved_count values for response
         logger.info("Reloading offers", extra={"stage": "MANAGER"})
@@ -509,7 +515,7 @@ class PurchasesManager:
         # Send notifications to sellers about reserved items
         await self._notify_sellers_about_reservation(session, purchase.id)
         
-        self._schedule_purchase_expiration_task(purchase.id, stage="MANAGER-PARTIAL")
+        await self._schedule_purchase_expiration_task(purchase.id, stage="MANAGER-PARTIAL")
         
         # Reload offers to get updated reserved_count values for response
         offers_dict = await self._load_offers_dict_by_ids(session, successful_offer_ids)

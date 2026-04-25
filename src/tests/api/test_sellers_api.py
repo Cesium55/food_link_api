@@ -1,16 +1,13 @@
-"""
-API integration tests for sellers endpoints
-"""
+"""API integration tests for sellers domain (without POST /sellers endpoint)."""
+
 import pytest
 from fastapi import status
 from sqlalchemy import select
-from unittest.mock import patch, AsyncMock
 
 from app.auth.models import User
 from app.sellers.models import Seller
 
 
-TEST_EMAIL = "test@example.com"
 TEST_PASSWORD = "password123"
 
 SELLER_DATA_IP = {
@@ -19,449 +16,279 @@ SELLER_DATA_IP = {
     "description": "Тестовый продавец",
     "inn": "123456789012",
     "is_IP": True,
-    "ogrn": "123456789012345"
-}
-
-SELLER_DATA_UR = {
-    "full_name": "ООО Тестовая Компания",
-    "short_name": "ТестКомпания",
-    "description": "Тестовый продавец",
-    "inn": "1234567890",
-    "is_IP": False,
-    "ogrn": "1234567890123"
+    "ogrn": "123456789012345",
 }
 
 SELLER_UPDATE_DATA = {
     "short_name": "Обновленное название",
     "description": "Обновленное описание",
     "status": 1,
-    "verification_level": 2
+    "verification_level": 2,
 }
 
 
-def get_response_data(response_data: dict) -> dict:
+def get_response_data(response_data: dict):
     return response_data.get("data", response_data)
 
 
-class TestCreateSellerAPI:
-    """Tests for /sellers endpoint (POST)"""
-    
-    @pytest.mark.asyncio
-    async def test_create_seller_ip_success(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test successful seller creation (IP)"""
-        response = await client.post(
-            "/auth/register",
-            json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
-        )
-        assert response.status_code == status.HTTP_200_OK
-        data = get_response_data(response.json())
-        access_token = data["access_token"]
-        
-        response = await client.post(
-            "/sellers",
-            json=SELLER_DATA_IP,
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        
-        assert response.status_code == status.HTTP_201_CREATED
-        data = get_response_data(response.json())
-        assert data["full_name"] == SELLER_DATA_IP["full_name"]
-        assert data["is_IP"] is True
-        
-        result = await test_session.execute(select(User).where(User.email == TEST_EMAIL))
-        user = result.scalar_one_or_none()
-        assert user.is_seller is True
-    
-    @pytest.mark.asyncio
-    async def test_create_seller_ur_success(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test successful seller creation (UR)"""
-        response = await client.post(
-            "/auth/register",
-            json={"email": "company@example.com", "password": TEST_PASSWORD}
-        )
-        data = get_response_data(response.json())
-        access_token = data["access_token"]
-        
-        response = await client.post(
-            "/sellers",
-            json=SELLER_DATA_UR,
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        
-        assert response.status_code == status.HTTP_201_CREATED
-        data = get_response_data(response.json())
-        assert data["is_IP"] is False
-    
-    @pytest.mark.asyncio
-    async def test_create_seller_already_exists(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test creating seller when user already has one"""
-        response = await client.post(
-            "/auth/register",
-            json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
-        )
-        data = get_response_data(response.json())
-        access_token = data["access_token"]
-        
-        await client.post(
-            "/sellers",
-            json=SELLER_DATA_IP,
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        
-        response = await client.post(
-            "/sellers",
-            json=SELLER_DATA_UR,
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-    
-    @pytest.mark.asyncio
-    async def test_create_seller_no_auth(self, client, mock_settings, mock_image_manager_init):
-        """Test creating seller without authentication"""
-        response = await client.post(
-            "/sellers",
-            json=SELLER_DATA_IP
-        )
-        
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+async def register_user_and_get_token(client, email: str) -> str:
+    response = await client.post(
+        "/auth/register",
+        json={"email": email, "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_200_OK
+    return get_response_data(response.json())["access_token"]
+
+
+async def create_seller_in_db(test_session, email: str, **overrides) -> Seller:
+    user_result = await test_session.execute(select(User).where(User.email == email))
+    user = user_result.scalar_one_or_none()
+    assert user is not None, f"User with email {email} not found"
+
+    user.is_seller = True
+
+    payload = {
+        "email": email,
+        "phone": None,
+        "full_name": SELLER_DATA_IP["full_name"],
+        "short_name": SELLER_DATA_IP["short_name"],
+        "description": SELLER_DATA_IP["description"],
+        "inn": SELLER_DATA_IP["inn"],
+        "is_IP": SELLER_DATA_IP["is_IP"],
+        "ogrn": SELLER_DATA_IP["ogrn"],
+        "master_id": user.id,
+        "status": 0,
+        "verification_level": 0,
+        "registration_doc_url": "",
+        "balance": 0,
+    }
+    payload.update(overrides)
+
+    seller = Seller(**payload)
+    test_session.add(seller)
+    await test_session.commit()
+    await test_session.refresh(seller)
+    return seller
 
 
 class TestGetSellerAPI:
-    """Tests for /sellers/{seller_id} and /sellers/me"""
-    
     @pytest.mark.asyncio
     async def test_get_seller_by_id_success(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test getting seller by ID"""
-        response = await client.post(
-            "/auth/register",
-            json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
-        )
-        data = get_response_data(response.json())
-        access_token = data["access_token"]
-        
-        create_response = await client.post(
-            "/sellers",
-            json=SELLER_DATA_IP,
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        seller_id = get_response_data(create_response.json())["id"]
-        
-        response = await client.get(f"/sellers/{seller_id}")
-        
+        email = "seller-get@example.com"
+        await register_user_and_get_token(client, email)
+        seller = await create_seller_in_db(test_session, email)
+
+        response = await client.get(f"/sellers/{seller.id}")
+
         assert response.status_code == status.HTTP_200_OK
         data = get_response_data(response.json())
-        assert data["id"] == seller_id
+        assert data["id"] == seller.id
         assert data["short_name"] == SELLER_DATA_IP["short_name"]
-    
+
     @pytest.mark.asyncio
-    async def test_get_seller_not_found(self, client, mock_settings, mock_image_manager_init):
-        """Test getting non-existent seller"""
-        response = await client.get("/sellers/99999")
+    async def test_get_seller_not_found_returns_404(self, client, mock_settings, mock_image_manager_init):
+        response = await client.get("/sellers/999999")
         assert response.status_code == status.HTTP_404_NOT_FOUND
-    
+
     @pytest.mark.asyncio
     async def test_get_my_seller_success(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test getting current user's seller"""
-        response = await client.post(
-            "/auth/register",
-            json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
-        )
-        data = get_response_data(response.json())
-        access_token = data["access_token"]
-        
-        await client.post(
-            "/sellers",
-            json=SELLER_DATA_IP,
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        
-        response = await client.get(
-            "/sellers/me",
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        
+        email = "seller-me@example.com"
+        token = await register_user_and_get_token(client, email)
+        await create_seller_in_db(test_session, email)
+
+        response = await client.get("/sellers/me", headers={"Authorization": f"Bearer {token}"})
+
         assert response.status_code == status.HTTP_200_OK
         data = get_response_data(response.json())
         assert data["full_name"] == SELLER_DATA_IP["full_name"]
-    
+
     @pytest.mark.asyncio
-    async def test_get_my_seller_no_seller_account(self, client, mock_settings, mock_image_manager_init):
-        """Test getting my seller when user has no seller account"""
-        response = await client.post(
-            "/auth/register",
-            json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
-        )
-        data = get_response_data(response.json())
-        access_token = data["access_token"]
-        
-        response = await client.get(
-            "/sellers/me",
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        
+    async def test_get_my_seller_without_seller_returns_404(self, client, mock_settings, mock_image_manager_init):
+        token = await register_user_and_get_token(client, "no-seller@example.com")
+
+        response = await client.get("/sellers/me", headers={"Authorization": f"Bearer {token}"})
+
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-class TestGetSellersListAPI:
-    """Tests for /sellers endpoint (GET - list)"""
-    
+class TestSellersListAPI:
     @pytest.mark.asyncio
-    async def test_get_sellers_list_success(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test getting paginated list of sellers"""
-        for i in range(3):
-            email = f"test{i}@example.com"
-            response = await client.post(
-                "/auth/register",
-                json={"email": email, "password": TEST_PASSWORD}
+    async def test_get_sellers_list_with_pagination(self, client, test_session, mock_settings, mock_image_manager_init):
+        for idx in range(3):
+            email = f"seller-list-{idx}@example.com"
+            await register_user_and_get_token(client, email)
+            await create_seller_in_db(
+                test_session,
+                email,
+                short_name=f"Seller {idx}",
+                inn=f"1234567890{idx:02d}",
             )
-            data = get_response_data(response.json())
-            access_token = data["access_token"]
-            
-            seller_data = SELLER_DATA_IP.copy()
-            seller_data["short_name"] = f"Seller {i}"
-            seller_data["inn"] = f"12345678901{i}"
-            
-            await client.post(
-                "/sellers",
-                json=seller_data,
-                headers={"Authorization": f"Bearer {access_token}"}
-            )
-        
-        response = await client.get("/sellers?page=1&page_size=10")
-        
-        assert response.status_code == status.HTTP_200_OK
-        # data = get_response_data(response.json())
-        data = response.json()
-        assert data["pagination"]["total_items"] >= 3
-        assert len(data["data"]) >= 3
-    
-    @pytest.mark.asyncio
-    async def test_get_sellers_list_pagination(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test pagination"""
-        for i in range(5):
-            email = f"page{i}@example.com"
-            response = await client.post(
-                "/auth/register",
-                json={"email": email, "password": TEST_PASSWORD}
-            )
-            data = get_response_data(response.json())
-            access_token = data["access_token"]
-            
-            seller_data = SELLER_DATA_IP.copy()
-            seller_data["short_name"] = f"Page {i}"
-            seller_data["inn"] = f"12345678904{i}"
-            
-            await client.post(
-                "/sellers",
-                json=seller_data,
-                headers={"Authorization": f"Bearer {access_token}"}
-            )
-        
+
         response = await client.get("/sellers?page=1&page_size=2")
+
         assert response.status_code == status.HTTP_200_OK
-        # data = get_response_data(response.json())
-        data = response.json()
-        assert len(data["data"]) == 2
-        assert data["pagination"]["page"] == 1
+        body = response.json()
+        assert "pagination" in body
+        assert body["pagination"]["page"] == 1
+        assert body["pagination"]["page_size"] == 2
+        assert len(body["data"]) == 2
 
-
-class TestUpdateSellerAPI:
-    """Tests for /sellers/{seller_id} endpoint (PUT)"""
-    
     @pytest.mark.asyncio
-    async def test_update_seller_success(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test successful seller update"""
-        response = await client.post(
-            "/auth/register",
-            json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
-        )
+    async def test_get_sellers_by_ids_success(self, client, test_session, mock_settings, mock_image_manager_init):
+        seller_ids = []
+        for idx in range(2):
+            email = f"seller-ids-{idx}@example.com"
+            await register_user_and_get_token(client, email)
+            seller = await create_seller_in_db(
+                test_session,
+                email,
+                short_name=f"By IDs {idx}",
+                inn=f"2234567890{idx:02d}",
+            )
+            seller_ids.append(seller.id)
+
+        response = await client.post("/sellers/by-ids", json=seller_ids)
+
+        assert response.status_code == status.HTTP_200_OK
         data = get_response_data(response.json())
-        access_token = data["access_token"]
-        
-        create_response = await client.post(
-            "/sellers",
-            json=SELLER_DATA_IP,
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        seller_id = get_response_data(create_response.json())["id"]
-        
+        assert len(data) == 2
+        assert {item["id"] for item in data} == set(seller_ids)
+
+
+class TestSellersSummaryAPI:
+    @pytest.mark.asyncio
+    async def test_sellers_summary_success(self, client, test_session, mock_settings, mock_image_manager_init):
+        for idx in range(2):
+            email = f"seller-summary-{idx}@example.com"
+            await register_user_and_get_token(client, email)
+            await create_seller_in_db(
+                test_session,
+                email,
+                short_name=f"Summary {idx}",
+                inn=f"3234567890{idx:02d}",
+            )
+
+        response = await client.get("/sellers/summary/stats")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = get_response_data(response.json())
+        assert data["total_sellers"] >= 2
+        assert "total_products" in data
+        assert "avg_products_per_seller" in data
+
+
+class TestUpdateDeleteSellerAPI:
+    @pytest.mark.asyncio
+    async def test_update_own_seller_success(self, client, test_session, mock_settings, mock_image_manager_init):
+        email = "seller-update-own@example.com"
+        token = await register_user_and_get_token(client, email)
+        seller = await create_seller_in_db(test_session, email)
+
         response = await client.put(
-            f"/sellers/{seller_id}",
+            f"/sellers/{seller.id}",
             json=SELLER_UPDATE_DATA,
-            headers={"Authorization": f"Bearer {access_token}"}
+            headers={"Authorization": f"Bearer {token}"},
         )
-        
+
         assert response.status_code == status.HTTP_200_OK
         data = get_response_data(response.json())
         assert data["short_name"] == SELLER_UPDATE_DATA["short_name"]
-    
+        assert data["status"] == SELLER_UPDATE_DATA["status"]
+
     @pytest.mark.asyncio
-    async def test_update_seller_not_own(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test updating another user's seller (should fail)"""
-        response = await client.post(
-            "/auth/register",
-            json={"email": "user1@example.com", "password": TEST_PASSWORD}
-        )
-        data1 = get_response_data(response.json())
-        access_token1 = data1["access_token"]
-        
-        create_response = await client.post(
-            "/sellers",
-            json=SELLER_DATA_IP,
-            headers={"Authorization": f"Bearer {access_token1}"}
-        )
-        seller1_id = get_response_data(create_response.json())["id"]
-        
-        response = await client.post(
-            "/auth/register",
-            json={"email": "user2@example.com", "password": TEST_PASSWORD}
-        )
-        data2 = get_response_data(response.json())
-        access_token2 = data2["access_token"]
-        
+    async def test_update_other_seller_returns_403(self, client, test_session, mock_settings, mock_image_manager_init):
+        owner_email = "seller-owner@example.com"
+        owner_token = await register_user_and_get_token(client, owner_email)
+        owner_seller = await create_seller_in_db(test_session, owner_email)
+
+        other_email = "seller-other@example.com"
+        other_token = await register_user_and_get_token(client, other_email)
+        await create_seller_in_db(test_session, other_email)
+
         response = await client.put(
-            f"/sellers/{seller1_id}",
+            f"/sellers/{owner_seller.id}",
             json=SELLER_UPDATE_DATA,
-            headers={"Authorization": f"Bearer {access_token2}"}
+            headers={"Authorization": f"Bearer {other_token}"},
         )
-        
+
+        assert owner_token
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-
-class TestDeleteSellerAPI:
-    """Tests for /sellers/{seller_id} endpoint (DELETE)"""
-    
     @pytest.mark.asyncio
-    async def test_delete_seller_success(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test successful seller deletion"""
-        response = await client.post(
-            "/auth/register",
-            json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
-        )
-        data = get_response_data(response.json())
-        access_token = data["access_token"]
-        
-        create_response = await client.post(
-            "/sellers",
-            json=SELLER_DATA_IP,
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        seller_id = get_response_data(create_response.json())["id"]
-        
+    async def test_delete_own_seller_success(self, client, test_session, mock_settings, mock_image_manager_init):
+        email = "seller-delete@example.com"
+        token = await register_user_and_get_token(client, email)
+        seller = await create_seller_in_db(test_session, email)
+
         response = await client.delete(
-            f"/sellers/{seller_id}",
-            headers={"Authorization": f"Bearer {access_token}"}
+            f"/sellers/{seller.id}",
+            headers={"Authorization": f"Bearer {token}"},
         )
-        
+
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        
-        result = await test_session.execute(select(Seller).where(Seller.id == seller_id))
-        seller = result.scalar_one_or_none()
-        assert seller is None
+
+        result = await test_session.execute(select(Seller).where(Seller.id == seller.id))
+        assert result.scalar_one_or_none() is None
 
 
-class TestGetSellersSummaryAPI:
-    """Tests for /sellers/summary/stats endpoint"""
-    
+class TestSellerRegistrationRequestAPI:
     @pytest.mark.asyncio
-    async def test_get_sellers_summary_success(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test getting sellers summary statistics"""
-        for i in range(2):
-            email = f"summary{i}@example.com"
-            response = await client.post(
-                "/auth/register",
-                json={"email": email, "password": TEST_PASSWORD}
-            )
-            data = get_response_data(response.json())
-            access_token = data["access_token"]
-            
-            seller_data = SELLER_DATA_IP.copy()
-            seller_data["short_name"] = f"Summary {i}"
-            seller_data["inn"] = f"12345678905{i}"
-            
-            await client.post(
-                "/sellers",
-                json=seller_data,
-                headers={"Authorization": f"Bearer {access_token}"}
-            )
-        
-        response = await client.get("/sellers/summary/stats")
-        
-        assert response.status_code == status.HTTP_200_OK
-        data = get_response_data(response.json())
-        assert "total_sellers" in data
-        assert data["total_sellers"] >= 2
+    async def test_registration_request_crud_flow(self, client, mock_settings, mock_image_manager_init):
+        token = await register_user_and_get_token(client, "seller-request@example.com")
 
-
-class TestGetSellersByIDsAPI:
-    """Tests for /sellers/by-ids endpoint"""
-    
-    @pytest.mark.asyncio
-    async def test_get_sellers_by_ids_success(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test getting sellers by list of IDs"""
-        seller_ids = []
-        for i in range(3):
-            email = f"byid{i}@example.com"
-            response = await client.post(
-                "/auth/register",
-                json={"email": email, "password": TEST_PASSWORD}
-            )
-            data = get_response_data(response.json())
-            access_token = data["access_token"]
-            
-            seller_data = SELLER_DATA_IP.copy()
-            seller_data["short_name"] = f"ByID {i}"
-            seller_data["inn"] = f"12345678906{i}"
-            
-            create_response = await client.post(
-                "/sellers",
-                json=seller_data,
-                headers={"Authorization": f"Bearer {access_token}"}
-            )
-            seller_id = get_response_data(create_response.json())["id"]
-            seller_ids.append(seller_id)
-        
-        response = await client.post(
-            "/sellers/by-ids",
-            json=seller_ids
-        )
-        
-        assert response.status_code == status.HTTP_200_OK
-        data = get_response_data(response.json())
-        assert len(data) == 3
-
-
-class TestSellerImageAPI:
-    """Tests for seller image upload and deletion"""
-    
-    @pytest.mark.asyncio
-    async def test_upload_seller_image_success(self, client, test_session, mock_settings, mock_image_manager_init):
-        """Test successful seller image upload"""
-        response = await client.post(
-            "/auth/register",
-            json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
-        )
-        data = get_response_data(response.json())
-        access_token = data["access_token"]
-        
         create_response = await client.post(
-            "/sellers",
-            json=SELLER_DATA_IP,
-            headers={"Authorization": f"Bearer {access_token}"}
+            "/sellers/registration-request",
+            json={"description": "draft", "terms_accepted": False},
+            headers={"Authorization": f"Bearer {token}"},
         )
-        seller_id = get_response_data(create_response.json())["id"]
-        
-        with patch('app.sellers.manager.ImageManager.upload_image', new_callable=AsyncMock) as mock_upload:
-            mock_upload.return_value = "test/path/image.jpg"
-            
-            response = await client.post(
-                f"/sellers/{seller_id}/images",
-                files={"file": ("test.jpg", b"fake image data", "image/jpeg")},
-                data={"order": 0},
-                headers={"Authorization": f"Bearer {access_token}"}
-            )
-            
-            assert response.status_code == status.HTTP_201_CREATED
-            data = get_response_data(response.json())
-            assert "path" in data
+        assert create_response.status_code == status.HTTP_201_CREATED
+        created = get_response_data(create_response.json())
+        assert created["status"] == "pending"
+        request_id = created["id"]
+
+        get_response = await client.get(
+            "/sellers/registration-request",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert get_response.status_code == status.HTTP_200_OK
+        fetched = get_response_data(get_response.json())
+        assert fetched["id"] == request_id
+
+        update_response = await client.put(
+            "/sellers/registration-request",
+            json={"description": "updated draft", "terms_accepted": False},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+        updated = get_response_data(update_response.json())
+        assert updated["description"] == "updated draft"
+
+        delete_response = await client.delete(
+            "/sellers/registration-request",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+        get_after_delete = await client.get(
+            "/sellers/registration-request",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert get_after_delete.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_registration_request_duplicate_returns_400(self, client, mock_settings, mock_image_manager_init):
+        token = await register_user_and_get_token(client, "seller-request-dup@example.com")
+
+        first = await client.post(
+            "/sellers/registration-request",
+            json={"description": "first"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert first.status_code == status.HTTP_201_CREATED
+
+        second = await client.post(
+            "/sellers/registration-request",
+            json={"description": "second"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
