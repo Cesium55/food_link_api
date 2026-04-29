@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends, Request, WebSocket
 
-from app.auth.models import User
 from app.support import schemas
 from app.support.master_chat_ws_manager import MasterChatWebSocketManager
 from app.support.manager import SupportManager
-from utils.auth_dependencies import get_current_user
+from utils.auth_dependencies import CurrentUserData, get_current_user_data
 
 router = APIRouter(prefix="/support", tags=["support"])
 
@@ -15,7 +14,7 @@ master_chat_ws_manager = MasterChatWebSocketManager()
 @router.get("/master-chat", response_model=schemas.MasterChatWithMessages)
 async def get_master_chat(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUserData = Depends(get_current_user_data),
 ):
     session = request.state.session
     return await support_manager.get_master_chat_with_messages(
@@ -28,7 +27,7 @@ async def get_master_chat(
 async def create_master_chat_message(
     request: Request,
     message_data: schemas.MasterChatMessageCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUserData = Depends(get_current_user_data),
 ):
     session = request.state.session
     master_chat_message = await support_manager.create_master_chat_message(
@@ -55,7 +54,7 @@ async def create_master_chat_message(
 @router.post("/master-chat/messages/read", response_model=schemas.MasterChatMessagesReadResponse)
 async def mark_master_chat_messages_as_read(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUserData = Depends(get_current_user_data),
 ):
     session = request.state.session
     mark_read_result = await support_manager.mark_master_chat_messages_as_read(

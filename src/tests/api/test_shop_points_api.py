@@ -55,6 +55,15 @@ async def register_user_and_get_token(client, email: str) -> str:
     return get_response_data(response.json())["access_token"]
 
 
+async def login_user_and_get_token(client, email: str) -> str:
+    response = await client.post(
+        "/auth/login",
+        json={"email": email, "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_200_OK
+    return get_response_data(response.json())["access_token"]
+
+
 async def create_seller_in_db(test_session, email: str, **overrides) -> Seller:
     user_result = await test_session.execute(select(User).where(User.email == email))
     user = user_result.scalar_one_or_none()
@@ -86,6 +95,12 @@ async def create_seller_in_db(test_session, email: str, **overrides) -> Seller:
     return seller
 
 
+async def create_seller_and_get_token(client, test_session, email: str, **overrides) -> tuple[Seller, str]:
+    seller = await create_seller_in_db(test_session, email, **overrides)
+    token = await login_user_and_get_token(client, email)
+    return seller, token
+
+
 async def create_shop_point_via_api(client, token: str, seller_id: int, **overrides) -> dict:
     payload = {**SHOP_POINT_DATA, "seller_id": seller_id, **overrides}
     response = await client.post(
@@ -101,8 +116,8 @@ class TestCreateShopPointAPI:
     @pytest.mark.asyncio
     async def test_create_shop_point_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "shop-create@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
 
         response = await client.post(
             "/shop-points",
@@ -121,12 +136,12 @@ class TestCreateShopPointAPI:
     @pytest.mark.asyncio
     async def test_create_shop_point_wrong_seller_returns_403(self, client, test_session, mock_settings, mock_image_manager_init):
         owner_email = "shop-owner@example.com"
-        owner_token = await register_user_and_get_token(client, owner_email)
-        await create_seller_in_db(test_session, owner_email)
+        await register_user_and_get_token(client, owner_email)
+        _, owner_token = await create_seller_and_get_token(client, test_session, owner_email)
 
         other_email = "shop-other@example.com"
         await register_user_and_get_token(client, other_email)
-        other_seller = await create_seller_in_db(test_session, other_email)
+        other_seller, _ = await create_seller_and_get_token(client, test_session, other_email)
 
         response = await client.post(
             "/shop-points",
@@ -144,8 +159,8 @@ class TestCreateShopPointAPI:
     @pytest.mark.asyncio
     async def test_create_shop_point_invalid_payload_returns_422(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "shop-invalid@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
 
         response = await client.post(
             "/shop-points",
@@ -160,8 +175,8 @@ class TestGetShopPointAPI:
     @pytest.mark.asyncio
     async def test_get_shop_point_by_id_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "shop-get@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
         created = await create_shop_point_via_api(client, token, seller.id)
 
         response = await client.get(f"/shop-points/{created['id']}")
@@ -179,8 +194,8 @@ class TestGetShopPointAPI:
     @pytest.mark.asyncio
     async def test_get_shop_points_by_seller_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "shop-by-seller@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
 
         await create_shop_point_via_api(client, token, seller.id, latitude=55.1)
         await create_shop_point_via_api(client, token, seller.id, latitude=55.2)
@@ -197,13 +212,13 @@ class TestShopPointsListAPI:
     @pytest.mark.asyncio
     async def test_get_shop_points_list_with_pagination_and_filters(self, client, test_session, mock_settings, mock_image_manager_init):
         first_email = "shop-list-1@example.com"
-        first_token = await register_user_and_get_token(client, first_email)
-        first_seller = await create_seller_in_db(test_session, first_email)
+        await register_user_and_get_token(client, first_email)
+        first_seller, first_token = await create_seller_and_get_token(client, test_session, first_email)
         await create_shop_point_via_api(client, first_token, first_seller.id, city="Москва", region="Москва")
 
         second_email = "shop-list-2@example.com"
-        second_token = await register_user_and_get_token(client, second_email)
-        second_seller = await create_seller_in_db(test_session, second_email)
+        await register_user_and_get_token(client, second_email)
+        second_seller, second_token = await create_seller_and_get_token(client, test_session, second_email)
         await create_shop_point_via_api(client, second_token, second_seller.id, city="Казань", region="Татарстан")
 
         response = await client.get("/shop-points?page=1&page_size=1&region=Москва&city=Москва")
@@ -221,8 +236,8 @@ class TestUpdateDeleteShopPointAPI:
     @pytest.mark.asyncio
     async def test_update_shop_point_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "shop-update@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
         created = await create_shop_point_via_api(client, token, seller.id)
 
         response = await client.put(
@@ -239,13 +254,13 @@ class TestUpdateDeleteShopPointAPI:
     @pytest.mark.asyncio
     async def test_update_other_seller_shop_point_returns_403(self, client, test_session, mock_settings, mock_image_manager_init):
         owner_email = "shop-update-owner@example.com"
-        owner_token = await register_user_and_get_token(client, owner_email)
-        owner_seller = await create_seller_in_db(test_session, owner_email)
+        await register_user_and_get_token(client, owner_email)
+        owner_seller, owner_token = await create_seller_and_get_token(client, test_session, owner_email)
         created = await create_shop_point_via_api(client, owner_token, owner_seller.id)
 
         other_email = "shop-update-other@example.com"
-        other_token = await register_user_and_get_token(client, other_email)
-        await create_seller_in_db(test_session, other_email)
+        await register_user_and_get_token(client, other_email)
+        _, other_token = await create_seller_and_get_token(client, test_session, other_email)
 
         response = await client.put(
             f"/shop-points/{created['id']}",
@@ -258,8 +273,8 @@ class TestUpdateDeleteShopPointAPI:
     @pytest.mark.asyncio
     async def test_delete_shop_point_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "shop-delete@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
         created = await create_shop_point_via_api(client, token, seller.id)
 
         response = await client.delete(
@@ -278,8 +293,8 @@ class TestShopPointsAuxAPI:
     async def test_get_shop_points_summary_success(self, client, test_session, mock_settings, mock_image_manager_init):
         for idx in range(2):
             email = f"shop-summary-{idx}@example.com"
-            token = await register_user_and_get_token(client, email)
-            seller = await create_seller_in_db(test_session, email)
+            await register_user_and_get_token(client, email)
+            seller, token = await create_seller_and_get_token(client, test_session, email)
             await create_shop_point_via_api(client, token, seller.id, latitude=55.0 + idx)
 
         response = await client.get("/shop-points/summary/stats")
@@ -292,8 +307,8 @@ class TestShopPointsAuxAPI:
     @pytest.mark.asyncio
     async def test_get_shop_points_by_ids_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "shop-by-ids@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
 
         first = await create_shop_point_via_api(client, token, seller.id, latitude=55.11)
         second = await create_shop_point_via_api(client, token, seller.id, latitude=55.22)
@@ -308,8 +323,8 @@ class TestShopPointsAuxAPI:
     @pytest.mark.asyncio
     async def test_create_shop_point_by_address_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "shop-by-address@example.com"
-        token = await register_user_and_get_token(client, email)
-        await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        _, token = await create_seller_and_get_token(client, test_session, email)
 
         geocode_result = SimpleNamespace(
             latitude=55.7558,

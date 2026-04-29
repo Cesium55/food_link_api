@@ -48,6 +48,15 @@ async def register_user_and_get_token(client, email: str) -> str:
     return get_response_data(response.json())["access_token"]
 
 
+async def login_user_and_get_token(client, email: str) -> str:
+    response = await client.post(
+        "/auth/login",
+        json={"email": email, "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_200_OK
+    return get_response_data(response.json())["access_token"]
+
+
 async def create_seller_in_db(test_session, email: str, **overrides) -> Seller:
     user_result = await test_session.execute(select(User).where(User.email == email))
     user = user_result.scalar_one_or_none()
@@ -79,6 +88,12 @@ async def create_seller_in_db(test_session, email: str, **overrides) -> Seller:
     return seller
 
 
+async def create_seller_and_get_token(client, test_session, email: str, **overrides) -> tuple[Seller, str]:
+    seller = await create_seller_in_db(test_session, email, **overrides)
+    token = await login_user_and_get_token(client, email)
+    return seller, token
+
+
 async def create_category(client, name: str, slug: str) -> int:
     response = await client.post("/product-categories", json={"name": name, "slug": slug})
     assert response.status_code == status.HTTP_201_CREATED
@@ -99,8 +114,8 @@ class TestCreateProductAPI:
     @pytest.mark.asyncio
     async def test_create_product_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "product-create@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
 
         response = await client.post(
             "/products",
@@ -119,8 +134,8 @@ class TestCreateProductAPI:
     @pytest.mark.asyncio
     async def test_create_product_with_category_and_attributes(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "product-create-rich@example.com"
-        token = await register_user_and_get_token(client, email)
-        await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        _, token = await create_seller_and_get_token(client, test_session, email)
 
         category_id = await create_category(client, "Test Category", "test-category")
 
@@ -162,8 +177,8 @@ class TestGetProductsAPI:
     @pytest.mark.asyncio
     async def test_get_product_by_id_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "product-get@example.com"
-        token = await register_user_and_get_token(client, email)
-        await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        _, token = await create_seller_and_get_token(client, test_session, email)
         created = await create_product_via_api(client, token)
 
         response = await client.get(f"/products/{created['id']}")
@@ -181,8 +196,8 @@ class TestGetProductsAPI:
     @pytest.mark.asyncio
     async def test_get_products_list_and_filters(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "product-list@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
 
         category_id = await create_category(client, "Filter Category", "filter-category")
 
@@ -226,8 +241,8 @@ class TestGetProductsAPI:
     @pytest.mark.asyncio
     async def test_get_products_by_ids_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "product-by-ids@example.com"
-        token = await register_user_and_get_token(client, email)
-        await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        _, token = await create_seller_and_get_token(client, test_session, email)
 
         p1 = await create_product_via_api(client, token, {**PRODUCT_DATA, "name": "ByIds-1", "article": "IDS-1"})
         p2 = await create_product_via_api(client, token, {**PRODUCT_DATA, "name": "ByIds-2", "article": "IDS-2"})
@@ -244,8 +259,8 @@ class TestUpdateDeleteProductAPI:
     @pytest.mark.asyncio
     async def test_update_product_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "product-update@example.com"
-        token = await register_user_and_get_token(client, email)
-        await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        _, token = await create_seller_and_get_token(client, test_session, email)
         created = await create_product_via_api(client, token)
 
         response = await client.put(
@@ -261,13 +276,13 @@ class TestUpdateDeleteProductAPI:
     @pytest.mark.asyncio
     async def test_update_product_wrong_owner_returns_403(self, client, test_session, mock_settings, mock_image_manager_init):
         owner_email = "product-owner@example.com"
-        owner_token = await register_user_and_get_token(client, owner_email)
-        await create_seller_in_db(test_session, owner_email)
+        await register_user_and_get_token(client, owner_email)
+        _, owner_token = await create_seller_and_get_token(client, test_session, owner_email)
         created = await create_product_via_api(client, owner_token)
 
         other_email = "product-other@example.com"
-        other_token = await register_user_and_get_token(client, other_email)
-        await create_seller_in_db(test_session, other_email)
+        await register_user_and_get_token(client, other_email)
+        _, other_token = await create_seller_and_get_token(client, test_session, other_email)
 
         response = await client.put(
             f"/products/{created['id']}",
@@ -280,8 +295,8 @@ class TestUpdateDeleteProductAPI:
     @pytest.mark.asyncio
     async def test_delete_product_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "product-delete@example.com"
-        token = await register_user_and_get_token(client, email)
-        await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        _, token = await create_seller_and_get_token(client, test_session, email)
         created = await create_product_via_api(client, token)
 
         response = await client.delete(
@@ -298,8 +313,8 @@ class TestProductsSummaryAPI:
     @pytest.mark.asyncio
     async def test_products_summary_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "product-summary@example.com"
-        token = await register_user_and_get_token(client, email)
-        await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        _, token = await create_seller_and_get_token(client, test_session, email)
 
         await create_product_via_api(client, token, {**PRODUCT_DATA, "name": "Summary-1", "article": "S-1"})
         await create_product_via_api(client, token, {**PRODUCT_DATA, "name": "Summary-2", "article": "S-2"})
@@ -316,8 +331,8 @@ class TestProductAttributesAPI:
     @pytest.mark.asyncio
     async def test_product_attribute_crud_flow(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "product-attr@example.com"
-        token = await register_user_and_get_token(client, email)
-        await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        _, token = await create_seller_and_get_token(client, test_session, email)
         product = await create_product_via_api(client, token)
 
         create_attr_response = await client.post(

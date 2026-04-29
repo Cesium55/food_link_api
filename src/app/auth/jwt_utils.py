@@ -63,7 +63,9 @@ class JWTUtils:
         with open(key_path, "r", encoding="utf-8") as file:
             return file.read()
     
-    def create_access_token(self, user: "User") -> str:
+    def create_access_token(
+        self, user: "User", seller_id: int | None = None
+    ) -> str:
         """Create JWT access token"""
         payload = {
             "user_id": user.id,
@@ -71,6 +73,7 @@ class JWTUtils:
             "phone": user.phone,
             "phone_verified": user.phone_verified,
             "is_seller": user.is_seller,
+            "seller_id": seller_id,
             "type": "access",
             "exp": datetime.now(timezone.utc) + self.access_token_ttl
         }

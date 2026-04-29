@@ -2,9 +2,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.products import schemas
 from app.products.manager import ProductsManager
-from utils.auth_dependencies import get_current_user
 from utils.seller_dependencies import get_current_seller
-from app.auth.models import User
 from app.sellers.models import Seller
 from utils.pagination import PaginatedResponse
 
@@ -18,13 +16,15 @@ products_manager = ProductsManager()
 async def create_product(
     request: Request, 
     product_data: schemas.ProductCreate,
-    current_user: User = Depends(get_current_user)
+    current_seller: Seller = Depends(get_current_seller)
 ) -> schemas.Product:
     """
     Create a new product (with optional categories and attributes).
     Seller ID is automatically determined from the authenticated user.
     """
-    return await products_manager.create_product(request.state.session, product_data, current_user)
+    return await products_manager.create_product(
+        request.state.session, product_data, current_seller
+    )
 
 
 @router.get("", response_model=PaginatedResponse[schemas.Product])

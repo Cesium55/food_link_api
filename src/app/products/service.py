@@ -2,11 +2,11 @@ from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, delete, update, insert
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.products import schemas
 from app.products.models import Product, ProductImage, ProductAttribute
 from app.product_categories.models import ProductCategory, product_category_relations
-from app.sellers.models import Seller
 
 
 class ProductsService:
@@ -16,7 +16,6 @@ class ProductsService:
 
     @staticmethod
     def _product_search_vector_expression(
-        seller_name_expression,
         product_name_expression,
         product_description_expression,
     ):
@@ -24,22 +23,86 @@ class ProductsService:
             ProductsService._fts_config,
             func.concat_ws(
                 " ",
-                func.coalesce(seller_name_expression, ""),
                 func.coalesce(product_name_expression, ""),
                 func.coalesce(product_description_expression, ""),
             ),
         )
 
+    @staticmethod
+    def _assign_loaded_relationship(instance, attribute_name: str, value) -> None:
+        if hasattr(instance, "_sa_instance_state"):
+            set_committed_value(instance, attribute_name, value)
+            return
+        setattr(instance, attribute_name, value)
+
+    @staticmethod
+    def _product_relationship_options():
+        return (
+            selectinload(Product.images),
+            selectinload(Product.attributes),
+            selectinload(Product.categories),
+        )
+
+    @staticmethod
+    def _product_ordering():
+        return (Product.name, Product.id)
+
+    @staticmethod
+    def _category_filter_subquery(category_ids: List[int]):
+        return (
+            select(
+                product_category_relations.c.product_id,
+            )
+            .where(product_category_relations.c.category_id.in_(category_ids))
+            .group_by(product_category_relations.c.product_id)
+            .having(
+                func.count(
+                    func.distinct(product_category_relations.c.category_id)
+                )
+                == len(category_ids)
+            )
+            .subquery()
+        )
+
+    def _apply_product_filters(
+        self,
+        query,
+        article: Optional[str] = None,
+        code: Optional[str] = None,
+        search_query: Optional[str] = None,
+        seller_id: Optional[int] = None,
+        category_ids: Optional[List[int]] = None,
+    ):
+        if category_ids:
+            category_subquery = self._category_filter_subquery(category_ids)
+            query = query.join(
+                category_subquery,
+                Product.id == category_subquery.c.product_id,
+            )
+
+        conditions = []
+        if article is not None:
+            conditions.append(Product.article == article)
+        if code is not None:
+            conditions.append(Product.code == code)
+        if search_query is not None and search_query.strip():
+            conditions.append(
+                Product.search_vector.op("@@")(
+                    func.plainto_tsquery(self._fts_config, search_query.strip())
+                )
+            )
+        if seller_id is not None:
+            conditions.append(Product.seller_id == seller_id)
+
+        if conditions:
+            query = query.where(and_(*conditions))
+
+        return query
+
     async def create_product(
         self, session: AsyncSession, schema: schemas.ProductCreate, seller_id: int
     ) -> Product:
         """Create a new product"""
-        seller_name_subquery = (
-            select(Seller.short_name)
-            .where(Seller.id == seller_id)
-            .scalar_subquery()
-        )
-
         # Insert product and get the ID
         result = await session.execute(
             insert(Product)
@@ -50,7 +113,7 @@ class ProductsService:
                 code=schema.code,
                 seller_id=seller_id,
                 search_vector=self._product_search_vector_expression(
-                    seller_name_subquery, schema.name, schema.description
+                    schema.name, schema.description
                 ),
             )
             .returning(Product)
@@ -62,8 +125,15 @@ class ProductsService:
             await self._add_categories_to_product(session, product.id, schema.category_ids)
         
         # Add attributes if provided
+        created_attributes: List[ProductAttribute] = []
         if schema.attributes:
-            await self._add_attributes_to_product(session, product.id, schema.attributes)
+            created_attributes = await self._add_attributes_to_product(
+                session, product.id, schema.attributes
+            )
+
+        self._assign_loaded_relationship(product, "images", [])
+        self._assign_loaded_relationship(product, "attributes", created_attributes)
+        self._assign_loaded_relationship(product, "categories", [])
         
         return product
 
@@ -106,88 +176,49 @@ class ProductsService:
         category_ids: Optional[List[int]] = None
     ) -> tuple[List[Product], int]:
         """Get paginated list of products with optional filters"""
-        # Build base query with filters
-        base_query = select(Product)
-        
-        # Apply category filter if provided (AND logic - product must have all categories)
-        if category_ids is not None and len(category_ids) > 0:
-            # Subquery to check that product has all specified categories
-            category_count_subquery = (
-                select(
-                    product_category_relations.c.product_id,
-                    func.count(func.distinct(product_category_relations.c.category_id)).label('category_count')
-                )
-                .where(product_category_relations.c.category_id.in_(category_ids))
-                .group_by(product_category_relations.c.product_id)
-                .having(func.count(func.distinct(product_category_relations.c.category_id)) == len(category_ids))
-                .subquery()
-            )
-            base_query = base_query.join(
-                category_count_subquery,
-                Product.id == category_count_subquery.c.product_id
-            )
-        
-        # Apply other filters
-        conditions = []
-        if article is not None:
-            conditions.append(Product.article == article)
-        if code is not None:
-            conditions.append(Product.code == code)
-        if search_query is not None and search_query.strip():
-            conditions.append(
-                Product.search_vector.op("@@")(
-                    func.plainto_tsquery(self._fts_config, search_query.strip())
-                )
-            )
-        if seller_id is not None:
-            conditions.append(Product.seller_id == seller_id)
-        
-        if conditions:
-            base_query = base_query.where(and_(*conditions))
-        
-        # Get total count with filters
-        count_query = select(func.count(func.distinct(Product.id)))
-        
-        # Apply category filter to count query (AND logic - product must have all categories)
-        if category_ids is not None and len(category_ids) > 0:
-            category_count_subquery = (
-                select(
-                    product_category_relations.c.product_id,
-                    func.count(func.distinct(product_category_relations.c.category_id)).label('category_count')
-                )
-                .where(product_category_relations.c.category_id.in_(category_ids))
-                .group_by(product_category_relations.c.product_id)
-                .having(func.count(func.distinct(product_category_relations.c.category_id)) == len(category_ids))
-                .subquery()
-            )
-            count_query = count_query.select_from(Product).join(
-                category_count_subquery,
-                Product.id == category_count_subquery.c.product_id
-            )
-        else:
-            count_query = count_query.select_from(Product)
-        
-        if conditions:
-            count_query = count_query.where(and_(*conditions))
-        
-        count_result = await session.execute(count_query)
+        filtered_ids_query = self._apply_product_filters(
+            select(Product.id),
+            article=article,
+            code=code,
+            search_query=search_query,
+            seller_id=seller_id,
+            category_ids=category_ids,
+        )
+
+        count_result = await session.execute(
+            select(func.count()).select_from(filtered_ids_query.subquery())
+        )
         total_count = count_result.scalar() or 0
 
-        # Get paginated results with filters
+        if total_count == 0:
+            return [], 0
+
         offset = (page - 1) * page_size
-        result = await session.execute(
-            base_query
-            .options(
-                selectinload(Product.images),
-                selectinload(Product.attributes),
-                selectinload(Product.categories)
-            )
-            .order_by(Product.name)
+        paged_ids_result = await session.execute(
+            filtered_ids_query
+            .order_by(*self._product_ordering())
             .limit(page_size)
             .offset(offset)
         )
-        products = result.scalars().all()
-        
+        product_ids = paged_ids_result.scalars().all()
+
+        if not product_ids:
+            return [], total_count
+
+        products_result = await session.execute(
+            select(Product)
+            .where(Product.id.in_(product_ids))
+            .options(*self._product_relationship_options())
+        )
+        products_by_id = {
+            product.id: product for product in products_result.scalars().all()
+        }
+        products = [
+            products_by_id[product_id]
+            for product_id in product_ids
+            if product_id in products_by_id
+        ]
+
         return products, total_count
 
     async def get_products_by_seller(
@@ -242,14 +273,12 @@ class ProductsService:
         if update_data:
             if "name" in update_data or "description" in update_data:
                 update_data["search_vector"] = self._product_search_vector_expression(
-                    Seller.short_name,
                     update_data.get("name", Product.name),
                     update_data.get("description", Product.description),
                 )
             result = await session.execute(
                 update(Product)
                 .where(Product.id == product_id)
-                .where(Product.seller_id == Seller.id)
                 .values(**update_data)
                 .returning(Product)
             )
@@ -333,10 +362,8 @@ class ProductsService:
         await session.execute(
             update(Product)
             .where(Product.id == product_id)
-            .where(Product.seller_id == Seller.id)
             .values(
                 search_vector=self._product_search_vector_expression(
-                    Seller.short_name,
                     Product.name,
                     Product.description,
                 )
@@ -349,10 +376,8 @@ class ProductsService:
         """Recalculate full-text search vectors for all products."""
         result = await session.execute(
             update(Product)
-            .where(Product.seller_id == Seller.id)
             .values(
                 search_vector=self._product_search_vector_expression(
-                    Seller.short_name,
                     Product.name,
                     Product.description,
                 )
@@ -390,10 +415,10 @@ class ProductsService:
 
     async def _add_attributes_to_product(
         self, session: AsyncSession, product_id: int, attributes: List[schemas.ProductAttributeCreateInline]
-    ) -> None:
+    ) -> List[ProductAttribute]:
         """Add attributes to product"""
         if not attributes:
-            return
+            return []
             
         # Insert attributes using SQLAlchemy Core
         values = [
@@ -405,9 +430,11 @@ class ProductsService:
             }
             for attr in attributes
         ]
-        await session.execute(
+        result = await session.execute(
             insert(ProductAttribute).values(values)
+            .returning(ProductAttribute)
         )
+        return result.scalars().all()
 
     async def create_product_attribute(
         self, session: AsyncSession, schema: schemas.ProductAttributeCreate

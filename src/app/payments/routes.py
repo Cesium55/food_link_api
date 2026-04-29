@@ -5,9 +5,8 @@ from fastapi.templating import Jinja2Templates
 from logger import get_logger
 from app.payments import schemas
 from app.payments.manager import PaymentsManager
-from utils.auth_dependencies import get_current_user
+from utils.auth_dependencies import CurrentUserData, get_current_user_data
 from utils.seller_dependencies import get_current_seller
-from app.auth.models import User
 from app.sellers.models import Seller
 
 router = APIRouter(prefix="/payments", tags=["payments"])
@@ -90,7 +89,7 @@ async def handle_webhook(
 async def get_payment_by_purchase(
     request: Request,
     purchase_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.Payment:
     """Get payment for a purchase"""
     return await payments_manager.get_payment_by_purchase_id_for_user(
@@ -102,7 +101,7 @@ async def get_payment_by_purchase(
 async def get_payment(
     request: Request,
     payment_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.Payment:
     """Get payment by ID"""
     return await payments_manager.get_payment_by_id_for_user(
@@ -131,7 +130,7 @@ async def get_payment_status(
 async def check_payment_status(
     request: Request,
     payment_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.Payment:
     """Manually check payment status in YooKassa and update local database"""
     return await payments_manager.check_payment_status_for_user(
@@ -143,7 +142,7 @@ async def check_payment_status(
 async def cancel_payment(
     request: Request,
     payment_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.Payment:
     """Cancel payment in YooKassa and update local database"""
     return await payments_manager.cancel_payment_for_user(

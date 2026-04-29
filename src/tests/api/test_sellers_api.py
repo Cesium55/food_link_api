@@ -40,6 +40,15 @@ async def register_user_and_get_token(client, email: str) -> str:
     return get_response_data(response.json())["access_token"]
 
 
+async def login_user_and_get_token(client, email: str) -> str:
+    response = await client.post(
+        "/auth/login",
+        json={"email": email, "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_200_OK
+    return get_response_data(response.json())["access_token"]
+
+
 async def create_seller_in_db(test_session, email: str, **overrides) -> Seller:
     user_result = await test_session.execute(select(User).where(User.email == email))
     user = user_result.scalar_one_or_none()
@@ -71,6 +80,12 @@ async def create_seller_in_db(test_session, email: str, **overrides) -> Seller:
     return seller
 
 
+async def create_seller_and_get_token(client, test_session, email: str, **overrides) -> tuple[Seller, str]:
+    seller = await create_seller_in_db(test_session, email, **overrides)
+    token = await login_user_and_get_token(client, email)
+    return seller, token
+
+
 class TestGetSellerAPI:
     @pytest.mark.asyncio
     async def test_get_seller_by_id_success(self, client, test_session, mock_settings, mock_image_manager_init):
@@ -93,8 +108,8 @@ class TestGetSellerAPI:
     @pytest.mark.asyncio
     async def test_get_my_seller_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "seller-me@example.com"
-        token = await register_user_and_get_token(client, email)
-        await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        _, token = await create_seller_and_get_token(client, test_session, email)
 
         response = await client.get("/sellers/me", headers={"Authorization": f"Bearer {token}"})
 
@@ -181,8 +196,8 @@ class TestUpdateDeleteSellerAPI:
     @pytest.mark.asyncio
     async def test_update_own_seller_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "seller-update-own@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
 
         response = await client.put(
             f"/sellers/{seller.id}",
@@ -198,12 +213,12 @@ class TestUpdateDeleteSellerAPI:
     @pytest.mark.asyncio
     async def test_update_other_seller_returns_403(self, client, test_session, mock_settings, mock_image_manager_init):
         owner_email = "seller-owner@example.com"
-        owner_token = await register_user_and_get_token(client, owner_email)
-        owner_seller = await create_seller_in_db(test_session, owner_email)
+        await register_user_and_get_token(client, owner_email)
+        owner_seller, owner_token = await create_seller_and_get_token(client, test_session, owner_email)
 
         other_email = "seller-other@example.com"
-        other_token = await register_user_and_get_token(client, other_email)
-        await create_seller_in_db(test_session, other_email)
+        await register_user_and_get_token(client, other_email)
+        _, other_token = await create_seller_and_get_token(client, test_session, other_email)
 
         response = await client.put(
             f"/sellers/{owner_seller.id}",
@@ -217,8 +232,8 @@ class TestUpdateDeleteSellerAPI:
     @pytest.mark.asyncio
     async def test_delete_own_seller_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "seller-delete@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
 
         response = await client.delete(
             f"/sellers/{seller.id}",

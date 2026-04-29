@@ -70,6 +70,15 @@ async def register_user_and_get_token(client, email: str) -> str:
     return get_response_data(response.json())["access_token"]
 
 
+async def login_user_and_get_token(client, email: str) -> str:
+    response = await client.post(
+        "/auth/login",
+        json={"email": email, "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_200_OK
+    return get_response_data(response.json())["access_token"]
+
+
 async def create_seller_in_db(test_session, email: str, **overrides) -> Seller:
     user_result = await test_session.execute(select(User).where(User.email == email))
     user = user_result.scalar_one_or_none()
@@ -99,6 +108,12 @@ async def create_seller_in_db(test_session, email: str, **overrides) -> Seller:
     await test_session.commit()
     await test_session.refresh(seller)
     return seller
+
+
+async def create_seller_and_get_token(client, test_session, email: str, **overrides) -> tuple[Seller, str]:
+    seller = await create_seller_in_db(test_session, email, **overrides)
+    token = await login_user_and_get_token(client, email)
+    return seller, token
 
 
 async def create_product_via_api(client, token: str) -> dict:
@@ -141,8 +156,8 @@ class TestCreateOfferAPI:
     @pytest.mark.asyncio
     async def test_create_offer_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "offer-create@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
         product = await create_product_via_api(client, token)
         shop = await create_shop_point_via_api(client, token, seller.id)
 
@@ -173,14 +188,14 @@ class TestCreateOfferAPI:
     @pytest.mark.asyncio
     async def test_create_offer_wrong_owner_returns_403(self, client, test_session, mock_settings, mock_image_manager_init):
         owner_email = "offer-owner@example.com"
-        owner_token = await register_user_and_get_token(client, owner_email)
-        owner_seller = await create_seller_in_db(test_session, owner_email)
+        await register_user_and_get_token(client, owner_email)
+        owner_seller, owner_token = await create_seller_and_get_token(client, test_session, owner_email)
         owner_product = await create_product_via_api(client, owner_token)
         owner_shop = await create_shop_point_via_api(client, owner_token, owner_seller.id)
 
         other_email = "offer-other@example.com"
-        other_token = await register_user_and_get_token(client, other_email)
-        await create_seller_in_db(test_session, other_email)
+        await register_user_and_get_token(client, other_email)
+        _, other_token = await create_seller_and_get_token(client, test_session, other_email)
 
         response = await client.post(
             "/offers",
@@ -199,8 +214,8 @@ class TestGetOffersAPI:
     @pytest.mark.asyncio
     async def test_get_offer_by_id_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "offer-get@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
         product = await create_product_via_api(client, token)
         shop = await create_shop_point_via_api(client, token, seller.id)
         offer = await create_offer_via_api(client, token, product["id"], shop["id"])
@@ -220,8 +235,8 @@ class TestGetOffersAPI:
     @pytest.mark.asyncio
     async def test_get_offer_with_product_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "offer-with-product@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
         product = await create_product_via_api(client, token)
         shop = await create_shop_point_via_api(client, token, seller.id)
         offer = await create_offer_via_api(client, token, product["id"], shop["id"])
@@ -236,8 +251,8 @@ class TestGetOffersAPI:
     @pytest.mark.asyncio
     async def test_get_offers_list_and_filters(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "offer-list@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
         product = await create_product_via_api(client, token)
         shop = await create_shop_point_via_api(client, token, seller.id)
         await create_offer_via_api(client, token, product["id"], shop["id"])
@@ -254,8 +269,8 @@ class TestGetOffersAPI:
     @pytest.mark.asyncio
     async def test_get_offers_with_products_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "offer-with-products@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
         product = await create_product_via_api(client, token)
         shop = await create_shop_point_via_api(client, token, seller.id)
         await create_offer_via_api(client, token, product["id"], shop["id"])
@@ -273,8 +288,8 @@ class TestUpdateDeleteOfferAPI:
     @pytest.mark.asyncio
     async def test_update_offer_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "offer-update@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
         product = await create_product_via_api(client, token)
         shop = await create_shop_point_via_api(client, token, seller.id)
         offer = await create_offer_via_api(client, token, product["id"], shop["id"])
@@ -293,15 +308,15 @@ class TestUpdateDeleteOfferAPI:
     @pytest.mark.asyncio
     async def test_update_offer_wrong_owner_returns_403(self, client, test_session, mock_settings, mock_image_manager_init):
         owner_email = "offer-update-owner@example.com"
-        owner_token = await register_user_and_get_token(client, owner_email)
-        owner_seller = await create_seller_in_db(test_session, owner_email)
+        await register_user_and_get_token(client, owner_email)
+        owner_seller, owner_token = await create_seller_and_get_token(client, test_session, owner_email)
         owner_product = await create_product_via_api(client, owner_token)
         owner_shop = await create_shop_point_via_api(client, owner_token, owner_seller.id)
         offer = await create_offer_via_api(client, owner_token, owner_product["id"], owner_shop["id"])
 
         other_email = "offer-update-other@example.com"
-        other_token = await register_user_and_get_token(client, other_email)
-        await create_seller_in_db(test_session, other_email)
+        await register_user_and_get_token(client, other_email)
+        _, other_token = await create_seller_and_get_token(client, test_session, other_email)
 
         response = await client.put(
             f"/offers/{offer['id']}",
@@ -314,8 +329,8 @@ class TestUpdateDeleteOfferAPI:
     @pytest.mark.asyncio
     async def test_delete_offer_success(self, client, test_session, mock_settings, mock_image_manager_init):
         email = "offer-delete@example.com"
-        token = await register_user_and_get_token(client, email)
-        seller = await create_seller_in_db(test_session, email)
+        await register_user_and_get_token(client, email)
+        seller, token = await create_seller_and_get_token(client, test_session, email)
         product = await create_product_via_api(client, token)
         shop = await create_shop_point_via_api(client, token, seller.id)
         offer = await create_offer_via_api(client, token, product["id"], shop["id"])

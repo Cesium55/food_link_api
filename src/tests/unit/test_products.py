@@ -229,13 +229,15 @@ class TestProductsService:
         assert mock_session.execute.call_count >= 2
 
     @pytest.mark.asyncio
-    async def test_create_product_with_attributes(self, products_service, mock_session, mock_product):
+    async def test_create_product_with_attributes(
+        self, products_service, mock_session, mock_product, mock_product_attribute
+    ):
         """Test creating product with attributes"""
         attributes = [create_product_attribute_create_inline()]
         product_create = create_product_create_schema(attributes=attributes)
         mock_session.execute.side_effect = [
             create_mock_execute_result(mock_product),
-            Mock()  # Attribute insertion
+            create_mock_scalars_result([mock_product_attribute])  # Attribute insertion
         ]
         
         product = await products_service.create_product(
@@ -291,10 +293,10 @@ class TestProductsService:
     @pytest.mark.asyncio
     async def test_get_products_paginated(self, products_service, mock_session, mock_product):
         """Test getting paginated products"""
-        products_list = [mock_product]
         mock_session.execute.side_effect = [
             create_mock_scalar_result(1),  # Count query
-            create_mock_scalars_result(products_list)  # Products query
+            create_mock_scalars_result([TEST_PRODUCT_ID]),  # Page IDs query
+            create_mock_scalars_result([mock_product]),  # Products query
         ]
         
         products, total_count = await products_service.get_products_paginated(
@@ -303,15 +305,15 @@ class TestProductsService:
         
         assert len(products) == 1
         assert total_count == 1
-        assert mock_session.execute.call_count == 2
+        assert mock_session.execute.call_count == 3
 
     @pytest.mark.asyncio
     async def test_get_products_paginated_with_filters(self, products_service, mock_session, mock_product):
         """Test getting paginated products with filters"""
-        products_list = [mock_product]
         mock_session.execute.side_effect = [
             create_mock_scalar_result(1),  # Count query
-            create_mock_scalars_result(products_list)  # Products query
+            create_mock_scalars_result([TEST_PRODUCT_ID]),  # Page IDs query
+            create_mock_scalars_result([mock_product]),  # Products query
         ]
         
         products, total_count = await products_service.get_products_paginated(
@@ -320,14 +322,15 @@ class TestProductsService:
         
         assert len(products) == 1
         assert total_count == 1
+        assert mock_session.execute.call_count == 3
 
     @pytest.mark.asyncio
     async def test_get_products_paginated_with_category_filter(self, products_service, mock_session, mock_product):
         """Test getting paginated products with category filter"""
-        products_list = [mock_product]
         mock_session.execute.side_effect = [
             create_mock_scalar_result(1),  # Count query
-            create_mock_scalars_result(products_list)  # Products query
+            create_mock_scalars_result([TEST_PRODUCT_ID]),  # Page IDs query
+            create_mock_scalars_result([mock_product]),  # Products query
         ]
         
         products, total_count = await products_service.get_products_paginated(
@@ -336,6 +339,7 @@ class TestProductsService:
         
         assert len(products) == 1
         assert total_count == 1
+        assert mock_session.execute.call_count == 3
 
     @pytest.mark.asyncio
     async def test_get_products_by_seller(self, products_service, mock_session, mock_product):
@@ -610,45 +614,66 @@ class TestProductsManager:
     """Tests for ProductsManager class"""
 
     @pytest.mark.asyncio
-    async def test_create_product_success(self, products_manager, mock_session, mock_user, mock_seller, mock_product):
+    async def test_create_product_success(self, products_manager, mock_session, mock_seller, mock_product):
         """Test successful product creation"""
         product_create = create_product_create_schema()
-        products_manager.sellers_service.get_seller_by_master_id = AsyncMock(return_value=mock_seller)
+        mock_product.attributes = []
         products_manager.service.create_product = AsyncMock(return_value=mock_product)
-        products_manager.service.get_product_by_id = AsyncMock(return_value=mock_product)
         
-        result = await products_manager.create_product(mock_session, product_create, mock_user)
+        result = await products_manager.create_product(mock_session, product_create, mock_seller)
         
         assert result is not None
         assert result.id == TEST_PRODUCT_ID
-        products_manager.sellers_service.get_seller_by_master_id.assert_called_once_with(mock_session, TEST_USER_ID)
-        products_manager.service.create_product.assert_called_once()
+        products_manager.service.create_product.assert_called_once_with(
+            mock_session, product_create, TEST_SELLER_ID
+        )
         mock_session.commit.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_create_product_user_not_seller(self, products_manager, mock_session, mock_user):
-        """Test product creation when user is not a seller"""
-        mock_user.is_seller = False
+    async def test_create_product_uses_current_seller_id(self, products_manager, mock_session, mock_seller, mock_product):
+        """Test product creation uses seller ID from current seller context"""
         product_create = create_product_create_schema()
-        
-        with pytest.raises(HTTPException) as exc_info:
-            await products_manager.create_product(mock_session, product_create, mock_user)
-        
-        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-        assert "Only sellers" in exc_info.value.detail
+        mock_product.attributes = []
+        products_manager.service.create_product = AsyncMock(return_value=mock_product)
+
+        await products_manager.create_product(mock_session, product_create, mock_seller)
+
+        products_manager.service.create_product.assert_called_once_with(
+            mock_session, product_create, mock_seller.id
+        )
 
     @pytest.mark.asyncio
-    async def test_create_product_seller_not_found(self, products_manager, mock_session, mock_user):
-        """Test product creation when seller account not found"""
-        mock_user.is_seller = True
+    async def test_create_product_service_error_propagates(self, products_manager, mock_session, mock_seller):
+        """Test product creation propagates service layer errors"""
         product_create = create_product_create_schema()
-        products_manager.sellers_service.get_seller_by_master_id = AsyncMock(return_value=None)
-        
+        products_manager.service.create_product = AsyncMock(
+            side_effect=HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Seller not found",
+            )
+        )
+
         with pytest.raises(HTTPException) as exc_info:
-            await products_manager.create_product(mock_session, product_create, mock_user)
-        
+            await products_manager.create_product(mock_session, product_create, mock_seller)
+
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
-        assert "Seller account not found" in exc_info.value.detail
+        assert "Seller not found" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_create_product_returns_attributes_without_reread(
+        self, products_manager, mock_session, mock_seller, mock_product, mock_product_attribute
+    ):
+        """Test product creation returns attributes from created product without reread"""
+        product_create = create_product_create_schema(
+            attributes=[create_product_attribute_create_inline()]
+        )
+        mock_product.attributes = [mock_product_attribute]
+        products_manager.service.create_product = AsyncMock(return_value=mock_product)
+
+        result = await products_manager.create_product(mock_session, product_create, mock_seller)
+
+        assert len(result.attributes) == 1
+        assert result.attributes[0].slug == mock_product_attribute.slug
 
     @pytest.mark.asyncio
     async def test_get_products(self, products_manager, mock_session, mock_product):

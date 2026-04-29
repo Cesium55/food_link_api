@@ -2,9 +2,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Request, Depends, UploadFile, File, Query
 from app.shop_points import schemas
 from app.shop_points.manager import ShopPointsManager
-from utils.auth_dependencies import get_current_user
+from utils.auth_dependencies import CurrentUserData, get_current_user_data
 from utils.seller_dependencies import get_current_seller
-from app.auth.models import User
 from app.sellers.models import Seller
 from utils.pagination import PaginatedResponse
 
@@ -119,7 +118,7 @@ async def get_shop_points_by_ids(
 async def create_shop_point_by_address(
     request: Request,
     shop_point_data: schemas.ShopPointCreateByAddress,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.ShopPoint:
     """
     Create a new shop point by raw address (will be geocoded automatically)

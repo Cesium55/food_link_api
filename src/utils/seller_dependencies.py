@@ -1,42 +1,32 @@
 from fastapi import Depends, HTTPException, Request, status
-from app.auth.models import User
-from app.sellers.models import Seller
-from app.sellers.service import SellersService
-from utils.auth_dependencies import get_current_user
+from pydantic import BaseModel
+from utils.auth_dependencies import CurrentUserData, get_current_user_data
+
+
+class CurrentSellerData(BaseModel):
+    id: int
 
 
 async def get_current_seller(
     request: Request,
-    current_user: User = Depends(get_current_user)
-) -> Seller:
+    current_user: CurrentUserData = Depends(get_current_user_data)
+) -> CurrentSellerData:
     """
     Get current seller based on authenticated user.
     Raises 403 if user is not a seller.
     Raises 404 if seller account not found.
     """
-    if not current_user.is_seller:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only sellers can access this endpoint"
-        )
-    
-    sellers_service = SellersService()
-    seller = await sellers_service.get_seller_by_master_id(
-        request.state.session, current_user.id
+    if current_user.seller_id is not None:
+        return CurrentSellerData(id=current_user.seller_id)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only sellers can access this endpoint"
     )
-    
-    if not seller:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Seller account not found for current user"
-        )
-    
-    return seller
 
 
 async def verify_seller_owns_resource(
     resource_seller_id: int,
-    current_seller: Seller
+    current_seller: CurrentSellerData
 ) -> None:
     """
     Verify that current seller owns the resource.

@@ -91,6 +91,15 @@ async def register_user_and_get_token(client, email: str) -> str:
     return get_response_data(response.json())["access_token"]
 
 
+async def login_user_and_get_token(client, email: str) -> str:
+    response = await client.post(
+        "/auth/login",
+        json={"email": email, "password": TEST_PASSWORD},
+    )
+    assert response.status_code == status.HTTP_200_OK
+    return get_response_data(response.json())["access_token"]
+
+
 async def get_user_by_email(test_session, email: str) -> User:
     result = await test_session.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
@@ -124,6 +133,12 @@ async def create_seller_in_db(test_session, email: str, **overrides) -> Seller:
     await test_session.commit()
     await test_session.refresh(seller)
     return seller
+
+
+async def create_seller_and_get_token(client, test_session, email: str, **overrides) -> tuple[Seller, str]:
+    seller = await create_seller_in_db(test_session, email, **overrides)
+    token = await login_user_and_get_token(client, email)
+    return seller, token
 
 
 async def create_product_via_api(client, token: str) -> dict:
@@ -191,8 +206,8 @@ class TestCreatePurchaseAPI:
         mock_image_manager_init,
     ):
         seller_email = "purchase-seller@example.com"
-        seller_token = await register_user_and_get_token(client, seller_email)
-        seller = await create_seller_in_db(test_session, seller_email)
+        await register_user_and_get_token(client, seller_email)
+        seller, seller_token = await create_seller_and_get_token(client, test_session, seller_email)
 
         product = await create_product_via_api(client, seller_token)
         shop = await create_shop_point_via_api(client, seller_token, seller.id)
@@ -234,8 +249,8 @@ class TestCreatePurchaseAPI:
         mock_image_manager_init,
     ):
         seller_email = "purchase-conflict-seller@example.com"
-        seller_token = await register_user_and_get_token(client, seller_email)
-        seller = await create_seller_in_db(test_session, seller_email)
+        await register_user_and_get_token(client, seller_email)
+        seller, seller_token = await create_seller_and_get_token(client, test_session, seller_email)
 
         product = await create_product_via_api(client, seller_token)
         shop = await create_shop_point_via_api(client, seller_token, seller.id)
@@ -273,8 +288,8 @@ class TestCreatePurchaseAPI:
         mock_image_manager_init,
     ):
         seller_email = "purchase-invalid-expired-seller@example.com"
-        seller_token = await register_user_and_get_token(client, seller_email)
-        seller = await create_seller_in_db(test_session, seller_email)
+        await register_user_and_get_token(client, seller_email)
+        seller, seller_token = await create_seller_and_get_token(client, test_session, seller_email)
 
         product = await create_product_via_api(client, seller_token)
         shop = await create_shop_point_via_api(client, seller_token, seller.id)
@@ -304,8 +319,8 @@ class TestCreatePurchaseAPI:
         mock_image_manager_init,
     ):
         seller_email = "purchase-invalid-qty-seller@example.com"
-        seller_token = await register_user_and_get_token(client, seller_email)
-        seller = await create_seller_in_db(test_session, seller_email)
+        await register_user_and_get_token(client, seller_email)
+        seller, seller_token = await create_seller_and_get_token(client, test_session, seller_email)
 
         product = await create_product_via_api(client, seller_token)
         shop = await create_shop_point_via_api(client, seller_token, seller.id)
@@ -354,8 +369,8 @@ class TestCreatePurchaseWithPartialSuccessAPI:
         mock_image_manager_init,
     ):
         seller_email = "purchase-partial-seller@example.com"
-        seller_token = await register_user_and_get_token(client, seller_email)
-        seller = await create_seller_in_db(test_session, seller_email)
+        await register_user_and_get_token(client, seller_email)
+        seller, seller_token = await create_seller_and_get_token(client, test_session, seller_email)
 
         product = await create_product_via_api(client, seller_token)
         shop = await create_shop_point_via_api(client, seller_token, seller.id)
@@ -427,8 +442,8 @@ class TestCreatePurchaseWithPartialSuccessAPI:
         mock_image_manager_init,
     ):
         seller_email = "purchase-partial-expired-seller@example.com"
-        seller_token = await register_user_and_get_token(client, seller_email)
-        seller = await create_seller_in_db(test_session, seller_email)
+        await register_user_and_get_token(client, seller_email)
+        seller, seller_token = await create_seller_and_get_token(client, test_session, seller_email)
 
         product = await create_product_via_api(client, seller_token)
         shop = await create_shop_point_via_api(client, seller_token, seller.id)
@@ -462,8 +477,8 @@ class TestCreatePurchaseWithPartialSuccessAPI:
         mock_image_manager_init,
     ):
         seller_email = "purchase-partial-zero-seller@example.com"
-        seller_token = await register_user_and_get_token(client, seller_email)
-        seller = await create_seller_in_db(test_session, seller_email)
+        await register_user_and_get_token(client, seller_email)
+        seller, seller_token = await create_seller_and_get_token(client, test_session, seller_email)
 
         product = await create_product_via_api(client, seller_token)
         shop = await create_shop_point_via_api(client, seller_token, seller.id)
@@ -584,8 +599,8 @@ class TestGetUpdateDeletePurchaseAPI:
         mock_image_manager_init,
     ):
         seller_email = "purchase-cancel-seller@example.com"
-        seller_token = await register_user_and_get_token(client, seller_email)
-        seller = await create_seller_in_db(test_session, seller_email)
+        await register_user_and_get_token(client, seller_email)
+        seller, seller_token = await create_seller_and_get_token(client, test_session, seller_email)
 
         product = await create_product_via_api(client, seller_token)
         shop = await create_shop_point_via_api(client, seller_token, seller.id)

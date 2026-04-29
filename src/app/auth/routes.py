@@ -2,7 +2,11 @@ from fastapi import APIRouter, Request, Depends
 from app.auth import schemas
 from app.auth.manager import AuthManager
 from app.auth.models import User
-from utils.auth_dependencies import get_current_user as get_current_user_dep
+from utils.auth_dependencies import (
+    CurrentUserData,
+    get_current_user as get_current_user_dep,
+    get_current_user_data,
+)
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -37,7 +41,7 @@ async def refresh_tokens(
 @router.post("/resend-verification-code")
 async def resend_phone_verification_code(
     request: Request,
-    user: User = Depends(get_current_user_dep),
+    user: CurrentUserData = Depends(get_current_user_data),
 ) -> dict:
     """Resend verification code to phone number (for authenticated users)"""
 
@@ -51,7 +55,7 @@ async def resend_phone_verification_code(
 async def verify_phone(
     request: Request,
     verify_data: schemas.VerifyPhoneRequest,
-    user: User = Depends(get_current_user_dep),
+    user: CurrentUserData = Depends(get_current_user_data),
 ) -> schemas.TokenResponse:
     """Verify phone number with code and get new token with phone_verified=True"""
     return await auth_manager.verify_phone_code(
@@ -85,7 +89,7 @@ async def get_current_user_info(
 async def register_firebase_token(
     request: Request,
     token_data: schemas.FirebaseTokenRequest,
-    user: User = Depends(get_current_user_dep)
+    user: CurrentUserData = Depends(get_current_user_data)
 ) -> dict:
     """Register or update Firebase token for the current user
     
@@ -110,7 +114,7 @@ async def register_firebase_token(
 async def bind_email(
     request: Request,
     bind_data: schemas.BindEmailRequest,
-    current_user: User = Depends(get_current_user_dep),
+    current_user: CurrentUserData = Depends(get_current_user_data),
 ) -> dict:
     """Bind email to authenticated user if it is not set yet."""
     return await auth_manager.bind_email(
@@ -122,7 +126,7 @@ async def bind_email(
 async def update_user_last_location(
     request: Request,
     location: schemas.UserLastLocationUpdate,
-    user: User = Depends(get_current_user_dep)
+    user: CurrentUserData = Depends(get_current_user_data)
 ) -> dict:
     """Update current user's last known location
     

@@ -5,11 +5,10 @@ from fastapi import HTTPException, status, UploadFile
 from app.products import schemas
 from app.products.service import ProductsService
 from app.sellers import schemas as sellers_schemas
-from app.sellers.service import SellersService
 from app.sellers.models import Seller
+from app.sellers.service import SellersService
 from app.product_categories import schemas as categories_schemas
 from app.product_categories.service import ProductCategoriesService
-from app.auth.models import User
 from utils.errors_handler import handle_alchemy_error
 from utils.image_manager import ImageManager
 from utils.pagination import PaginatedResponse
@@ -30,36 +29,29 @@ class ProductsManager:
         self, 
         session: AsyncSession, 
         product_data: schemas.ProductCreate,
-        current_user: User
+        current_seller: Seller
     ) -> schemas.Product:
         """Create a new product with validation"""
-        # Check if user is a seller
-        if not current_user.is_seller:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only sellers can create products"
-            )
-        
-        # Get seller by user's master_id
-        seller = await self.sellers_service.get_seller_by_master_id(session, current_user.id)
-        if not seller:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Seller account not found for current user"
-            )
-        
         # Create product with seller_id
-        product = await self.service.create_product(session, product_data, seller.id)
+        product = await self.service.create_product(
+            session, product_data, current_seller.id
+        )
         await session.commit()
 
-        # Return created product with images and attributes
-        created_product = await self.service.get_product_by_id(session, product.id)
-        product_schema = schemas.Product.model_validate(created_product)
-        
-        # Add category IDs from loaded categories
-        product_schema.category_ids = [cat.id for cat in created_product.categories]
-        
-        return product_schema
+        return schemas.Product(
+            id=product.id,
+            name=product.name,
+            description=product.description,
+            article=product.article,
+            code=product.code,
+            seller_id=product.seller_id,
+            images=[],
+            attributes=[
+                schemas.ProductAttribute.model_validate(attribute)
+                for attribute in product.attributes
+            ],
+            category_ids=list(product_data.category_ids),
+        )
 
     async def get_products(self, session: AsyncSession) -> List[schemas.Product]:
         """Get list of products"""

@@ -3,9 +3,8 @@ from datetime import datetime
 from fastapi import APIRouter, Request, Depends, HTTPException, status, Query
 from app.purchases import schemas
 from app.purchases.manager import PurchasesManager
-from utils.auth_dependencies import get_current_user
+from utils.auth_dependencies import CurrentUserData, get_current_user_data
 from utils.seller_dependencies import get_current_seller
-from app.auth.models import User
 from app.sellers.models import Seller
 from utils.response_logger import log_response
 from utils.pagination import PaginatedResponse
@@ -23,7 +22,7 @@ purchases_manager = PurchasesManager()
 async def create_purchase(
     request: Request,
     purchase_data: schemas.PurchaseCreate,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.PurchaseWithOffers:
     """
     Create a new purchase order with partial success support.
@@ -51,7 +50,7 @@ async def create_purchase(
 async def create_purchase_with_partial_success(
     request: Request,
     purchase_data: schemas.PurchaseCreate,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.PurchaseWithOffers:
     """
     Create a new purchase order with partial success support.
@@ -69,7 +68,7 @@ async def create_purchase_with_partial_success(
 @router.get("", response_model=PaginatedResponse[schemas.Purchase])
 async def get_my_purchases(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUserData = Depends(get_current_user_data),
     page: int = Query(default=1, ge=1, description="Page number (starts from 1)"),
     page_size: int = Query(default=20, ge=1, description="Number of items per page"),
     status: Optional[str] = Query(default=None, description="Filter by purchase status"),
@@ -95,7 +94,7 @@ async def get_my_purchases(
 @router.get("/current-pending", response_model=schemas.PurchaseWithOffers)
 async def get_pending_purchase(
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.PurchaseWithOffers:
     """
     Get current user's pending purchase.
@@ -144,7 +143,7 @@ async def get_seller_purchases(
 async def get_purchase(
     request: Request,
     purchase_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.PurchaseWithOffers:
     """
     Get purchase by ID
@@ -169,7 +168,7 @@ async def update_purchase_status(
     request: Request,
     purchase_id: int,
     status_data: schemas.PurchaseUpdate,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.Purchase:
     """
     Update purchase status
@@ -195,7 +194,7 @@ async def update_purchase_status(
 async def delete_purchase(
     request: Request,
     purchase_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> None:
     """
     Delete purchase and release reservations
@@ -220,7 +219,7 @@ async def delete_purchase(
 async def generate_order_token(
     request: Request,
     purchase_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.OrderTokenResponse:
     """
     Generate JWT token for order information.
@@ -235,7 +234,7 @@ async def generate_order_token(
 async def verify_purchase_token(
     request: Request,
     token_data: schemas.OrderTokenRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.PurchaseInfoByTokenResponse:
     """
     Verify purchase token and get purchase information (only seller's items).
@@ -264,7 +263,7 @@ async def fulfill_order_items(
     request: Request,
     purchase_id: int,
     fulfillment_data: schemas.OrderFulfillmentRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUserData = Depends(get_current_user_data)
 ) -> schemas.OrderFulfillmentResponse:
     """
     Fulfill order items for a seller.
