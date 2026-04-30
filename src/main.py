@@ -22,6 +22,7 @@ from app.support.routes import router as support_router
 
 import app.admin as admin_models
 from app.admin.admin import MyAdmin
+from app.admin.auth_backend import AdminAuthBackend
 from app.admin.views import ReportView
 
 from middleware.insert_session_middleware import InsertSessionMiddleware
@@ -84,7 +85,13 @@ app.include_router(debug_router)
 app.include_router(maps_router)
 
 admin = MyAdmin(
-    app, async_engine, base_url="/addmin-pnl", templates_dir="src/templates/sqladmin"
+    app,
+    async_engine,
+    base_url="/addmin-pnl",
+    templates_dir="src/templates/sqladmin",
+    authentication_backend=AdminAuthBackend(
+        secret_key=settings.admin_session_secret
+    ),
 )
 admin_views = [
     admin_models.UserAdmin,

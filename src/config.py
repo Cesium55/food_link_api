@@ -89,6 +89,15 @@ class Settings(BaseSettings):
     auth_enable_phone: bool = True
     mock_phone_verification_code: bool = False
 
+    # Настройки админки
+    admin_username: Optional[str] = None
+    admin_password: Optional[str] = None
+    admin_password_hash: Optional[str] = None
+    admin_session_secret: str = Field(
+        default="change-me-admin-session-secret",
+        description="Secret for SQLAdmin session middleware",
+    )
+
     # tg
     tg_gateway_access_token: Optional[str] = None
     

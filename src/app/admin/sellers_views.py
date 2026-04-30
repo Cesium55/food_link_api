@@ -2,6 +2,7 @@ from typing import List
 
 from fastapi import Request
 from sqladmin import ModelView, action
+from sqladmin.filters import AllUniqueStringValuesFilter
 from sqlalchemy import select, update
 
 from app.admin.common import action_auto_returner, action_with_ids, logger
@@ -41,6 +42,7 @@ class SellerRegistrationRequestAdmin(ModelView, model=sellers_models.SellerRegis
         "created_at",
         "updated_at",
     ]
+    column_filters = [AllUniqueStringValuesFilter("status")]
 
     @staticmethod
     def _has_required_fields(
