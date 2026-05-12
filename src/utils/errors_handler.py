@@ -31,6 +31,11 @@ def handle_alchemy_error(func: Callable) -> Callable:
             )
         except IntegrityError as e:
             error_message = str(e).lower()
+            if "uq_user_pending_purchase" in error_message:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="User already has a pending purchase. Only one pending purchase is allowed at a time."
+                )
             if "unique" in error_message or "duplicate" in error_message:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

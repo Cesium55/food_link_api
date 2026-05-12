@@ -49,27 +49,6 @@ class PurchasesManager:
             )
 
     @handle_alchemy_error
-    async def _ensure_no_pending_purchase_for_user(
-        self, session: AsyncSession, user_id: int, stage: str
-    ) -> None:
-        logger.info(
-            f"Checking for existing pending purchase for user_id={user_id}",
-            extra={"stage": stage},
-        )
-        existing_pending = await self.service.has_pending_purchase_by_user(
-            session, user_id, for_update=True
-        )
-        logger.info(
-            f"Existing pending check complete: found={existing_pending}",
-            extra={"stage": stage},
-        )
-        if existing_pending:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="User already has a pending purchase. Only one pending purchase is allowed at a time."
-            )
-
-    @handle_alchemy_error
     async def _lock_requested_offers(
         self, session: AsyncSession, purchase_data: schemas.PurchaseCreate, stage: str
     ) -> Dict[int, Offer]:
@@ -250,7 +229,6 @@ class PurchasesManager:
         )
         
         self._validate_purchase_has_offers(purchase_data)
-        await self._ensure_no_pending_purchase_for_user(session, user_id, stage="MANAGER")
         locked_offers_dict = await self._lock_requested_offers(
             session, purchase_data, stage="MANAGER"
         )
@@ -382,7 +360,6 @@ class PurchasesManager:
         )
         
         self._validate_purchase_has_offers(purchase_data)
-        await self._ensure_no_pending_purchase_for_user(session, user_id, stage="MANAGER")
 
         # Process each offer individually
         offer_results: List[schemas.OfferProcessingResult] = []

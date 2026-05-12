@@ -60,6 +60,12 @@ class Purchase(Base):
             "status IN ('pending', 'confirmed', 'cancelled', 'completed')",
             name="ck_purchase_status_valid"
         ),
+        Index(
+            "uq_user_pending_purchase",
+            "user_id",
+            unique=True,
+            postgresql_where=(status == PurchaseStatus.PENDING.value),
+        ),
     )
 
     user: Mapped["User"] = relationship("User", back_populates="purchases")
